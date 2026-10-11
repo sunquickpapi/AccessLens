@@ -19,7 +19,7 @@ Scan the QR code with **Expo Go** (Android or iOS), or press `w` for a browser p
 |---|---|
 | ① Capture a photo and confirm the location | Report → Step 1: camera or gallery, GPS pin you can drag, landmark, "Yes, this is where the barrier is" |
 | ③ Describe how the barrier affects the journey | Step 2: severity, what happened, who it affects (wheelchair users, older residents, walking aids, strollers), free text, voice description |
-| ⑤ Confirm or correct the suggested category | Step 3: AI suggestion with confidence, scores for all three categories, highlighted suspected feature on the photo, "AI is not sure" state, resident picks the final category |
+| ⑤ Confirm or correct the suggested category | Step 3: AI suggestion with confidence, scores for each category and "no barrier", highlighted suspected feature on the photo, "AI is not sure" state, resident picks the final category |
 | ⑦ Track progress and receive updates | My reports, report tracker, Updates inbox with unread badge, phone notifications |
 | What AI does: Obstruction / Surface damage / Steps | The three categories everywhere; "What you can report" on Home |
 | AI highlights suspected features and uncertainty; staff verify | Dashed box + % on the photo, confidence wording, reminder that staff verify before action |
@@ -31,7 +31,14 @@ Scan the QR code with **Expo Go** (Android or iOS), or press `w` for a browser p
 
 ## AI
 
-`src/lib/ai.js` has an on-device stand-in so the flow works without a trained model. Point `AI_ENDPOINT` at a server that accepts a `photo` upload and returns `{ category, confidence, scores, box }` to use a real model. Anything under 60% confidence is shown as "AI is not sure".
+Real, free, zero-shot AI: no training photos needed. `ai-server/` runs two open-source models (CLIP for the category and confidence, OWL-ViT for the box) on your Mac.
+
+```bash
+npm run ai          # window 1: start the AI (first run downloads ~1 GB)
+npx expo start      # window 2: start the app
+```
+
+The app finds the AI on the same Mac automatically (Settings → AI connection shows the status). If it can't be reached, residents choose the category themselves. See `ai-server/README.md` for accuracy testing and tuning.
 
 ## Brand
 

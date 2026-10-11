@@ -39,3 +39,9 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# AI server
+ai-server/.venv/
+ai-server/__pycache__/
+ai-server/test_photos/
+ai-server/results.csv

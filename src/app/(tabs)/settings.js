@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Alert, Platform, StyleSheet, TextInput, View } from 'react-native';
 import Button from '../../components/Button';
 import Chip from '../../components/Chip';
@@ -5,6 +6,7 @@ import Icon from '../../components/Icon';
 import { Screen, Section, Wrap } from '../../components/Layout';
 import { LogoMark } from '../../components/Logo';
 import Txt from '../../components/Txt';
+import { checkAI } from '../../lib/ai';
 import { AFFECTED } from '../../lib/catalog';
 import { setupNotifications } from '../../lib/notify';
 import { colors, fonts, radius, border, TEXT_SCALES } from '../../lib/theme';
@@ -14,6 +16,15 @@ import { useStore } from '../../state/store';
 export default function Settings() {
   const { settings, updateSettings, resetDemo } = useStore();
   const { say, fs, target } = useUI();
+  const [ai, setAi] = useState(null);
+  const [checking, setChecking] = useState(false);
+  const runCheck = async () => {
+    setChecking(true);
+    const r = await checkAI();
+    setAi(r);
+    setChecking(false);
+    say(r.ok ? 'AI server connected.' : 'AI server not reachable.');
+  };
 
   const confirmReset = () => {
     const run = () => resetDemo();
@@ -77,6 +88,29 @@ export default function Settings() {
             if (on) await setupNotifications();
           }}
         />
+      </Section>
+
+      <Section title="AI connection">
+        <Txt v="small" color={colors.muted} style={{ marginBottom: 10 }}>
+          Barrier suggestions come from the AccessLens AI server running on the laptop that started the app.
+        </Txt>
+        {ai ? (
+          <View style={[styles.tip, { marginTop: 0, marginBottom: 10 }]} accessibilityLiveRegion="polite">
+            <Icon name={ai.ok ? 'check' : 'close'} size={20} color={ai.ok ? colors.ink : colors.red} />
+            <View style={{ flex: 1 }}>
+              <Txt v="bodyStrong">{ai.ok ? 'Connected' : 'Not connected'}</Txt>
+              <Txt v="small" color={colors.muted}>
+                {ai.ok ? ai.model : ai.reason}
+              </Txt>
+              {ai.url ? (
+                <Txt v="small" color={colors.muted}>
+                  {ai.url}
+                </Txt>
+              ) : null}
+            </View>
+          </View>
+        ) : null}
+        <Button small variant="outline" label="Check AI connection" icon={<Icon name="spark" size={18} />} loading={checking} onPress={runCheck} />
       </Section>
 
       <Section title="About you (optional)">

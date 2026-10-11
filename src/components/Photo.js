@@ -8,10 +8,10 @@ import Txt from './Txt';
 // suspected-feature box drawn on top.
 export default function Photo({ uri, ai, showBox, label, aspect = 4 / 3, style }) {
   const isIllustration = typeof uri === 'string' && uri.startsWith('illustration:');
-  const box = showBox && ai?.box;
+  const box = showBox && ai?.category && ai?.box;
   const a11y =
     label ??
-    (ai ? `Photo of the barrier. AI suspects ${CATEGORIES[ai.category]?.label.toLowerCase()} in the highlighted area.` : 'Photo of the barrier');
+    (ai?.category ? `Photo of the barrier. AI suspects ${CATEGORIES[ai.category]?.label.toLowerCase()} in the highlighted area.` : 'Photo of the barrier');
 
   return (
     <View style={[styles.frame, { aspectRatio: aspect }, style]} accessible accessibilityRole="image" accessibilityLabel={a11y}>

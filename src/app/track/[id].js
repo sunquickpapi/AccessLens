@@ -144,7 +144,7 @@ export default function TrackReport() {
 
       <Section title="Your report">
         <Photo uri={r.photoUri} ai={r.ai} showBox={!!r.ai} />
-        {r.ai ? (
+        {r.ai && r.ai.category ? (
           <Card tone="paper" style={{ marginTop: 12, flexDirection: 'row', gap: 10, alignItems: 'center' }}>
             <Icon name="spark" color={colors.red} />
             <Txt v="small" style={{ flex: 1 }}>

@@ -23,6 +23,7 @@ const EMPTY_DRAFT = {
   landmark: '',
   ai: null, // AI suggestion
   aiState: 'idle', // idle | running | done | error
+  aiError: null,
   category: null, // final category the resident confirms
   categoryCorrected: false,
   affected: [],
@@ -113,9 +114,13 @@ export function StoreProvider({ children }) {
           {
             stage: 'ai',
             at,
-            note: draft.categoryCorrected
-              ? `AI suggested ${CATEGORIES[draft.ai?.category]?.label ?? 'a category'}; you corrected it to ${CATEGORIES[draft.category].label}.`
-              : `AI flagged possible ${CATEGORIES[draft.category].noun.replace(/^an? /, '')}; you confirmed it.`,
+            note: !draft.ai
+              ? `AI check unavailable; you chose ${CATEGORIES[draft.category].label}.`
+              : draft.ai.noBarrier
+                ? `AI didn’t spot a barrier; you chose ${CATEGORIES[draft.category].label}.`
+                : draft.categoryCorrected
+                  ? `AI suggested ${CATEGORIES[draft.ai.category]?.label ?? 'a category'}; you corrected it to ${CATEGORIES[draft.category].label}.`
+                  : `AI flagged possible ${CATEGORIES[draft.category].noun.replace(/^an? /, '')}; you confirmed it.`,
           },
         ],
       };

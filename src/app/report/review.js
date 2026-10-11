@@ -58,7 +58,7 @@ export default function ReviewStep() {
       <View style={{ marginTop: 18 }}>
         <Row
           label="Barrier type"
-          value={draft.category ? `${CATEGORIES[draft.category].label}${draft.categoryCorrected ? ' (you corrected the AI)' : draft.ai ? ' (AI suggestion, confirmed)' : ''}` : null}
+          value={draft.category ? `${CATEGORIES[draft.category].label}${draft.categoryCorrected ? ' (you corrected the AI)' : draft.ai?.noBarrier ? ' (your choice)' : draft.ai ? ' (AI suggestion, confirmed)' : ' (your choice)'}` : null}
           edit="/report/category"
         />
         <Row label="Location" value={[draft.location?.address ?? 'Pinned on map', draft.landmark].filter(Boolean).join(' · ')} edit="/report/photo" />

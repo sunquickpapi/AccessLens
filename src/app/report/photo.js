@@ -40,13 +40,17 @@ export default function CaptureStep() {
 
   function startAnalysis(uri) {
     const token = ++analysisToken;
-    updateDraft({ aiState: 'running', ai: null, category: null, categoryCorrected: false });
+    updateDraft({ aiState: 'running', aiError: null, ai: null, category: null, categoryCorrected: false });
     analysePhoto(uri)
       .then((ai) => {
         if (token !== analysisToken) return;
-        updateDraft({ ai, aiState: 'done', category: ai.category });
+        updateDraft({ ai, aiState: 'done', category: ai.noBarrier ? null : ai.category });
       })
-      .catch(() => token === analysisToken && updateDraft({ aiState: 'error' }));
+      .catch((e) => {
+        if (token !== analysisToken) return;
+        const offline = e?.name === 'AIUnavailableError' || /reachable|address/i.test(e?.message ?? '');
+        updateDraft({ aiState: 'error', aiError: offline ? 'The AI server isn’t reachable.' : e?.message ?? null });
+      });
   }
 
   async function pick(fromCamera) {
@@ -138,7 +142,9 @@ export default function CaptureStep() {
               {draft.aiState === 'running'
                 ? 'AI is checking your photo…'
                 : draft.aiState === 'done'
-                  ? 'AI check finished — you will review it in step 3.'
+                  ? draft.ai?.noBarrier
+                    ? 'AI didn’t spot a barrier — you can still choose one in step 3.'
+                    : 'AI check finished — you will review it in step 3.'
                   : draft.aiState === 'error'
                     ? 'AI check unavailable — you can choose the category yourself.'
                     : ''}
