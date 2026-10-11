@@ -1,24 +1,75 @@
 {
   "expo": {
-    "name": "accesslens",
+    "name": "AccessLens",
     "slug": "accesslens",
+    "scheme": "accesslens",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "backgroundColor": "#FFF3E0",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "my.trinitytech.accesslens",
+      "infoPlist": {
+        "NSCameraUsageDescription": "AccessLens uses the camera so you can photograph a walkway barrier.",
+        "NSPhotoLibraryUsageDescription": "AccessLens lets you choose an existing photo of a walkway barrier.",
+        "NSLocationWhenInUseUsageDescription": "AccessLens uses your location to pin where the barrier is.",
+        "NSMicrophoneUsageDescription": "AccessLens lets you record an optional voice description of the barrier."
+      }
     },
     "android": {
+      "package": "my.trinitytech.accesslens",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#D62828",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "RECORD_AUDIO"
+      ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "favicon": "./assets/favicon.png",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "AccessLens lets you record an optional voice description of the barrier."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "AccessLens uses the camera so you can photograph a walkway barrier.",
+          "photosPermission": "AccessLens lets you choose an existing photo of a walkway barrier."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "AccessLens uses your location to pin where the barrier is."
+        }
+      ],
+      "expo-notifications",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 160,
+          "resizeMode": "contain",
+          "backgroundColor": "#FFF3E0"
+        }
+      ],
+      "expo-asset"
+    ]
   }
 }
