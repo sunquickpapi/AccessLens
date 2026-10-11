@@ -37,7 +37,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "ai": "cd ai-server && ./start-ai.sh"
+    "ai": "cd ai-server && bash start-ai.sh"
   },
   "private": true,
   "devDependencies": {
