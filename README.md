@@ -6,9 +6,9 @@ AI-assisted accessibility reporting for inclusive townships.
 Submission by **Trinity Tech** (Universiti Teknologi MARA) for the **Sime Darby Property University Hackathon 2026 — Township of Tomorrow**
 Theme: People · Community Wellbeing
 
-| Team | |
+| Team | Role |
 |---|---|
-| Muhammad Naufal bin Mohd Nizam | Team leader |
+| Muhammad Naufal bin Mohd Nizam | Team leader & Developer |
 | Muhammad Al Amin bin Muslaini | Researcher |
 | Muhammad Hadiff bin Jusmera | Video Grapher | 
 
