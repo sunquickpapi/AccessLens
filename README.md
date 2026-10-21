@@ -9,8 +9,8 @@ Theme: People · Community Wellbeing
 | Team | |
 |---|---|
 | Muhammad Naufal bin Mohd Nizam | Team leader |
-| Muhammad Al Amin bin Muslaini | |
-| Muhammad Hadiff bin Jusmera | |
+| Muhammad Al Amin bin Muslaini | Researcher |
+| Muhammad Hadiff bin Jusmera | Video Grapher | 
 
 ---
 
