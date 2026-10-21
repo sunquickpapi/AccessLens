@@ -49,3 +49,6 @@ ai-server/data/
 
 # local editor settings
 .claude/
+
+# submission package (built from git)
+_submission/
