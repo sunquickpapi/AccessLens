@@ -1,4 +1,6 @@
 # AccessLens
+<img width="1439" height="808" alt="image" src="https://github.com/user-attachments/assets/10c43990-5381-4f28-a354-067fc22bfe20" />
+
 
 **Spot it. Snap it. Clear the way.**
 AI-assisted accessibility reporting for inclusive townships.
