@@ -8,14 +8,24 @@ import Txt from './Txt';
 // Vertical five-stage tracker: Report → AI assessment → Staff review →
 // Completion photo → Confirmation.
 export default function Tracker({ report }) {
-  const current = stageIndex(report);
+  if (report.stage === 'closed') {
+    return (
+      <View style={styles.closed} accessible accessibilityLabel={`${report.rejected ? 'Report not accepted' : 'Report closed'}. ${report.closedReason ?? ''}`}>
+        <Txt v="bodyStrong">{report.rejected ? 'Report not accepted: no barrier found' : 'Report closed'}</Txt>
+        <Txt v="small" color={colors.muted}>
+          {report.closedReason ?? 'Township staff closed this report.'}
+        </Txt>
+      </View>
+    );
+  }
+  const current = Math.max(0, stageIndex(report));
   const done = report.stage === 'confirmed';
   return (
     <View>
       {STAGES.map((s, i) => {
         const complete = i < current || (done && i === current);
         const active = i === current && !done;
-        const when = [...report.timeline].reverse().find((e) => e.stage === s.key)?.at;
+        const when = [...(report.timeline ?? [])].reverse().find((e) => e.stage === s.key)?.at;
         let detail = s.detail;
         if (s.key === 'review' && report.assignedTo && i <= current) detail = `Verified and assigned to ${report.assignedTo}.`;
         const state = complete ? 'completed' : active ? 'in progress' : 'not started';
@@ -76,4 +86,5 @@ const styles = StyleSheet.create({
   dotActive: { backgroundColor: colors.red },
   line: { width: 3, flex: 1, minHeight: 22, backgroundColor: colors.paper, marginVertical: 2 },
   body: { flex: 1, paddingBottom: 18, paddingTop: 5, gap: 2 },
+  closed: { borderWidth: 2, borderStyle: 'dashed', borderColor: colors.ink, borderRadius: 16, padding: 14, gap: 4, marginBottom: 12 },
 });

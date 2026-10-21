@@ -1,71 +1,103 @@
-# AccessLens AI server
+# AccessLens server
 
-Free, zero-shot barrier detection that runs on your Mac. No training photos needed.
+One program on your Mac that runs everything behind the resident app:
 
-- **CLIP** (open source) compares each photo with written descriptions of
-  Obstruction, Surface damage, Steps and "no barrier", and returns the best
-  match with a confidence score.
-- **OWL-ViT** (open source) finds where the barrier is, for the dashed box.
+- **Database** (SQLite, one file: `ai-server/data/accesslens.db`): residents, reports,
+  photos, voice notes, staff accounts, teams, the timeline of every report and the
+  updates sent to residents.
+- **Staff website** at `http://127.0.0.1:8000/staff`: admin and staff log in here.
+- **AI**: free, zero-shot barrier detection (CLIP for the category and the effect on the
+  journey, OWL-ViT for the box). After a resident snaps a photo the app fills in the whole
+  report from this; the resident checks and edits it before sending.
 
 ## Demo day: two Terminal windows
 
-**Window 1: the AI**
+**Window 1: the server**
 ```bash
 cd ~/Downloads/accesslens
-npm run ai
+npm run server        # same as: npm run ai
 ```
-The first run sets everything up and downloads the models (about 1 GB, a few
-minutes). After that it starts in about 20 seconds. Wait for **"AccessLens AI is running."**
+Wait for **"AccessLens server is running."** The first run creates the database
+with demo data.
 
 **Window 2: the app**
 ```bash
 cd ~/Downloads/accesslens
 npx expo start
 ```
-Scan the QR code. The app finds the AI on the same Mac by itself.
-Check it in the app under **Settings → AI connection**.
+Scan the QR code. The app finds the server on the same Mac by itself.
+Check it under **Settings → Server connection**.
 
-Phones must be on the same Wi-Fi as the Mac. If the AI is off or unreachable,
-residents can still report; they just pick the category themselves.
+**The staff website:** open `http://127.0.0.1:8000/staff` in Safari or Chrome on the Mac,
+or `http://<your Mac's Wi-Fi address>:8000/staff` on another laptop or tablet on the same Wi-Fi.
 
-## Requirements
+## Logins
 
-Python 3.10 or newer. Check with `python3 --version`. If it's older, install
-Python from https://www.python.org/downloads/ (free), then run `npm run ai` again.
+| Type  | Tab   | Logs in with | Demo account |
+|-------|-------|--------------|--------------|
+| Admin | Admin | Email        | `admin@accesslens.my` / `admin123` |
+| Staff | Staff | Staff ID     | `S1001` (Aina, Civil Maintenance) / `staff123` |
+| Staff | Staff | Staff ID     | `S1002` (Farid, Enforcement & Facilities) / `staff123` |
 
-## Measure accuracy (slide 8: precision and recall)
+Admins create more accounts under **Staff accounts**. New staff get the next free
+staff ID automatically (S1003, S1004…), or you can type one.
 
-Put test photos into folders named after the right answer:
+**Admins** can do everything: verify, assign, confirm, plus manage staff accounts,
+maintenance teams, residents and the activity log, and reset the demo data.
+**Staff** handle reports: verify, assign, upload completion photos, confirm, message residents.
 
-```
-ai-server/test_photos/obstruction/
-ai-server/test_photos/surface/
-ai-server/test_photos/steps/
-ai-server/test_photos/none/        ← clear walkways (optional)
-```
+## How the app and the website are connected
 
-Then:
+1. A resident sends a report → it is saved in the database (photo, location, AI result,
+   what they said). It appears on the staff dashboard within seconds.
+2. Staff **verify** it (confirm the category and the responsible team) → the resident's
+   app shows "Report verified".
+3. Staff **assign** inspection or repair work → "Repair work assigned".
+4. The team uploads a **completion photo** → "Fix submitted".
+5. Staff **confirm** it → "Barrier resolved". The resident is asked "Is the walkway
+   usable now?" If they say **not yet**, the report reopens for the team automatically.
+
+The app checks for updates every 10 seconds while it's open, and shows a phone
+notification for each new update.
+
+## Database tools
+
 ```bash
 cd ~/Downloads/accesslens/ai-server
-./.venv/bin/python evaluate.py test_photos
+./.venv/bin/python db.py reset     # wipe everything and reload the demo data
 ```
-You get precision, recall and F1 per category, overall accuracy, a confusion
-matrix, and `results.csv` with every prediction.
+Admins can also reset from the website (Activity log page → Reset demo data). To look inside the database,
+open `ai-server/data/accesslens.db` with the free "DB Browser for SQLite" app.
 
-## Tuning
+Exports: the **Export CSV** button on the staff dashboard downloads every report.
 
-- Edit the descriptions in `PROMPTS` inside `accesslens_ai.py` to improve
-  results (e.g. add "a photo of a drain grate with gaps"). Re-run `evaluate.py`
-  to see whether it helped.
-- `ACCESSLENS_NO_BOX=1 npm run ai` skips the box model to save time and memory.
-- `ACCESSLENS_CLIP=openai/clip-vit-large-patch14 npm run ai` uses a bigger,
-  more accurate (and slower) CLIP model.
+## Switches
 
-## Using Expo tunnel mode
+- `ACCESSLENS_NO_AI=1 npm run server` — skip the AI (starts instantly; residents pick
+  the category themselves). Useful when you only want to test the website.
+- `ACCESSLENS_NO_BOX=1` — skip the box model to save memory.
+- `ACCESSLENS_CLIP=openai/clip-vit-large-patch14` — a bigger, more accurate CLIP model.
 
-`npx expo start --tunnel` hides your Mac's address, so the app can't find the
-AI on its own. Tell it the address instead (shown when the AI starts):
-```bash
-EXPO_PUBLIC_AI_URL=http://192.168.x.x:8000 npx expo start --tunnel
-```
-The phone still needs to reach that address, so it must be on the same network.
+## Auto-filled reports
+
+The app sends which fields it filled in and whether the resident kept or changed each one
+(`auto_fields` in the database, e.g. `{"severity": "edited", "category": "accepted"}`).
+The staff report page tags each line "AI suggested" / "From GPS" / "Resident edited", and
+**Recurring issues & evaluation → Auto-filled reports** shows how often each guess was kept.
+
+## Measuring the AI (slide 8: precision and recall)
+
+Two ways:
+- **Live:** the staff website's **Recurring issues & evaluation** page compares the AI's
+  suggestion with the category staff verified, for every report.
+- **Offline test set:** put photos in folders named after the right answer:
+  ```
+  ai-server/test_photos/obstruction/   surface/   steps/   none/
+  ```
+  then run `./.venv/bin/python evaluate.py test_photos`.
+
+## Privacy note
+
+This is a prototype for one small area. Photos are served to anyone on the same
+Wi-Fi who knows the link, and the server has no HTTPS. Before real use, put it behind
+HTTPS, change the demo passwords and limit who can reach it.

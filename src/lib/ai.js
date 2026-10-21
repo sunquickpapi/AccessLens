@@ -24,17 +24,56 @@ const TIMEOUT_MS = 30000;
 // unreachable (clearly labelled "simulated"). Leave false for honest demos.
 export const SIMULATE_WHEN_OFFLINE = false;
 
+// Address typed in Settings → Server connection (wins over everything else).
+let manualUrl = null;
+export function setManualAIUrl(url) {
+  manualUrl = url && url.trim() ? url.trim() : null;
+}
+
+function cleanUrl(u) {
+  let url = u.trim().replace(/\/+$/, '').replace(/\/(analyse|health)$/, '');
+  if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
+  if (!/:\d+$/.test(url.replace(/^https?:\/\//i, ''))) url = `${url}:${AI_PORT}`;
+  return url;
+}
+
+function hostFrom(value) {
+  if (!value || typeof value !== 'string') return null;
+  const m = value.replace(/^[a-z]+:\/\//i, '').match(/^([^/:?#]+)/);
+  const host = m?.[1];
+  // Tunnel addresses (…exp.direct) point at Expo's servers, not your laptop.
+  if (!host || /exp\.direct|ngrok|expo\.dev|expo\.io/.test(host)) return null;
+  return host;
+}
+
+// Every place Expo Go might tell us which computer the app was loaded from.
+export function detectedHosts() {
+  const candidates = [
+    Constants.expoConfig?.hostUri,
+    Constants.expoGoConfig?.debuggerHost,
+    Constants.manifest2?.extra?.expoGo?.debuggerHost,
+    Constants.manifest?.debuggerHost,
+    Constants.linkingUri,
+    Constants.experienceUrl,
+  ];
+  try {
+    const getDevServer = require('react-native/Libraries/Core/Devtools/getDevServer').default;
+    candidates.push(getDevServer()?.url);
+  } catch {
+    // not available in this build
+  }
+  return [...new Set(candidates.map(hostFrom).filter(Boolean))];
+}
+
 export function aiBaseUrl() {
-  const override = process.env.EXPO_PUBLIC_AI_URL;
-  if (override) return override.replace(/\/+$/, '').replace(/\/analyse$/, '');
+  if (manualUrl) return cleanUrl(manualUrl);
+  const envUrl = process.env.EXPO_PUBLIC_AI_URL;
+  if (envUrl) return cleanUrl(envUrl);
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
     return `http://${window.location.hostname || 'localhost'}:${AI_PORT}`;
   }
-  const hostUri = Constants.expoConfig?.hostUri ?? Constants.expoGoConfig?.debuggerHost ?? '';
-  const host = hostUri.split(':')[0];
-  // Tunnel addresses (…exp.direct) point at Expo's servers, not your laptop.
-  if (!host || host.includes('exp.direct') || host.includes('ngrok')) return null;
-  return `http://${host}:${AI_PORT}`;
+  const host = detectedHosts()[0];
+  return host ? `http://${host}:${AI_PORT}` : null;
 }
 
 async function withTimeout(promiseFactory, ms) {
@@ -56,35 +95,59 @@ export class AIUnavailableError extends Error {
 
 export async function checkAI() {
   const base = aiBaseUrl();
-  if (!base) return { ok: false, url: null, reason: 'No AI server address (tunnel mode). Set EXPO_PUBLIC_AI_URL.' };
+  if (!base) return { ok: false, url: null, reason: 'Couldn’t work out your laptop’s address. Type it in below.' };
   try {
-    const res = await withTimeout((signal) => fetch(`${base}/health`, { signal }), 5000);
+    const res = await withTimeout((signal) => fetch(`${base}/health`, { signal }), 8000);
     const body = await res.json();
-    return { ok: !!body.ok, url: base, model: body.model };
-  } catch {
-    return { ok: false, url: base, reason: 'Not reachable. Is ./start-ai.sh running on the same Wi-Fi?' };
+    return { ok: !!body.ok, url: base, model: body.model, aiOn: body.ai !== false && !!body.model, database: !!body.database };
+  } catch (e) {
+    const why = e?.name === 'AbortError' ? 'timed out after 8 s' : e?.message || 'network error';
+    return { ok: false, url: base, reason: `Not reachable (${why}). Is “npm run ai” running, and is this phone on the same Wi-Fi?` };
   }
+}
+
+// Expo SDK 57 replaces global fetch with expo/fetch, which can't upload a
+// React Native { uri, name, type } file part. XMLHttpRequest still uses React
+// Native's own networking, which streams the photo from disk, so we upload with it.
+export function xhrUpload(url, form, ms, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+    xhr.timeout = ms;
+    xhr.onload = () => {
+      let json = {};
+      try {
+        json = JSON.parse(xhr.responseText || '{}');
+      } catch {
+        // non-JSON reply
+      }
+      resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, json });
+    };
+    xhr.onerror = () => reject(new Error('network error'));
+    xhr.ontimeout = () => reject(new Error(`timed out after ${ms / 1000} s`));
+    xhr.send(form);
+  });
 }
 
 async function remoteAnalyse(uri) {
   const base = aiBaseUrl();
-  if (!base) throw new AIUnavailableError('No AI server address');
-  const body = new FormData();
+  if (!base) throw new AIUnavailableError('Couldn’t work out the AI server’s address. Set it in Settings → Server connection.');
+  const form = new FormData();
   if (Platform.OS === 'web') {
     const blob = await (await fetch(uri)).blob();
-    body.append('photo', blob, 'barrier.jpg');
+    form.append('photo', blob, 'barrier.jpg');
   } else {
-    body.append('photo', { uri, name: 'barrier.jpg', type: 'image/jpeg' });
+    form.append('photo', { uri, name: 'barrier.jpg', type: 'image/jpeg' });
   }
   let res;
   try {
-    res = await withTimeout((signal) => fetch(`${base}/analyse`, { method: 'POST', body, signal }), TIMEOUT_MS);
-  } catch {
-    throw new AIUnavailableError('AI server not reachable');
+    res = await xhrUpload(`${base}/analyse`, form, TIMEOUT_MS);
+  } catch (e) {
+    throw new AIUnavailableError(`Couldn’t reach the AI at ${base} (${e?.message || 'network error'}).`);
   }
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.error || `AI server returned ${res.status}`);
-  return json;
+  if (!res.ok) throw new Error(res.json.error || `AI server returned ${res.status}`);
+  return res.json;
 }
 
 // ----- prototype stand-in (only used if SIMULATE_WHEN_OFFLINE) -----
@@ -105,7 +168,7 @@ function simulated(uri) {
   raw[top] += 0.4 + r() * 1.4;
   const total = raw.reduce((a, b) => a + b, 0);
   const scores = Object.fromEntries(keys.map((k, i) => [k, raw[i] / total]));
-  return { category: keys[top], confidence: scores[keys[top]], scores, box: null, noBarrier: false, model: 'simulated' };
+  return { category: keys[top], confidence: scores[keys[top]], scores, box: null, noBarrier: false, severity: 'difficult', model: 'simulated' };
 }
 
 function normalise(raw) {
@@ -117,6 +180,10 @@ function normalise(raw) {
     box: raw.box ?? null,
     noBarrier: !!raw.noBarrier,
     uncertain: raw.uncertain ?? confidence < UNCERTAIN_BELOW,
+    severity: raw.noBarrier ? null : raw.severity ?? null,
+    severityScores: raw.severityScores ?? null,
+    walkway: raw.walkway ?? null, // how sure the AI is the photo shows a walkway at all
+    reason: raw.reason ?? null, // not_walkway | clear_walkway when there's no barrier
     model: raw.model ?? 'unknown',
   };
 }

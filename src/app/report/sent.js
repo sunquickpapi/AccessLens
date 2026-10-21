@@ -12,13 +12,14 @@ import { useStore } from '../../state/store';
 
 export default function Sent() {
   const { id } = useLocalSearchParams();
-  const { reports, resetDraft } = useStore();
+  const { findReport, resetDraft, connection } = useStore();
   const { say } = useUI();
-  const report = reports.find((r) => r.id === id);
+  const report = findReport(id);
+  const waiting = report?.synced === false;
 
   useEffect(() => {
     resetDraft();
-    if (report) say(`Report sent. Your reference is ${report.code.split('').join(' ')}. We will update you at every step.`);
+    say('Report saved. It is being sent to township staff. We will update you at every step.');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -28,7 +29,7 @@ export default function Sent() {
     <Screen
       footer={
         <>
-          <Button label="Track this report" onPress={() => router.replace(`/track/${report.id}`)} />
+          <Button label="Track this report" onPress={() => router.replace(`/track/${id}`)} />
           <Button label="Back to home" variant="outline" onPress={() => router.dismissTo('/')} />
         </>
       }
@@ -37,15 +38,19 @@ export default function Sent() {
         <Icon name="check" size={56} color={colors.cream} stroke={3.4} />
       </View>
       <Txt v="hero" center style={{ marginTop: 22 }}>
-        Report sent
+        {waiting ? 'Report saved' : 'Report sent'}
       </Txt>
-      <Txt v="body" center color={colors.muted} style={{ marginTop: 8 }}>
-        Thank you for helping clear the way.
+      <Txt v="body" center color={colors.muted} style={{ marginTop: 8 }} accessibilityLiveRegion="polite">
+        {waiting
+          ? connection.ok === false
+            ? 'We couldn’t reach township staff yet. It will send automatically when you’re connected.'
+            : 'Sending it to township staff…'
+          : 'Township staff can see it now. Thank you for helping clear the way.'}
       </Txt>
-      <View style={styles.code} accessible accessibilityLabel={`Reference ${report.code}`}>
+      <View style={styles.code} accessible accessibilityLabel={waiting ? 'Reference not ready yet' : `Reference ${report.code}`}>
         <Txt v="label">Reference</Txt>
-        <Txt v="display" color={colors.red}>
-          {report.code}
+        <Txt v="display" color={waiting ? colors.muted : colors.red}>
+          {waiting ? '…' : report.code}
         </Txt>
       </View>
 

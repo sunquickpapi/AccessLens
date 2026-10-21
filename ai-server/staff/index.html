@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>AccessLens Staff</title>
+  <link rel="icon" href="logo.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    /* Loading screen — inline so it shows the moment the page opens */
+    #loader { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background: #fff3e0; color: #1e1614; font-family: "Inter", system-ui, sans-serif; transition: opacity .38s ease, transform .38s ease; }
+    #loader.out { opacity: 0; transform: scale(1.04); pointer-events: none; }
+    #loader .stripe { position: absolute; top: 0; left: 0; right: 0; height: 10px; background: #d62828; border-bottom: 3px solid #1e1614; }
+    #loader .mark { width: 104px; height: 104px; border: 3px solid #1e1614; border-radius: 26px; box-shadow: 0 6px 0 #1e1614; background: #d62828;
+      animation: al-pop .6s cubic-bezier(.2,1.4,.4,1) both, al-scan 1.8s ease-in-out .6s infinite; }
+    #loader .mark svg { display: block; }
+    #loader h1 { font-family: "Archivo Black", "Arial Black", sans-serif; font-size: 40px; text-transform: uppercase; letter-spacing: -.01em; margin: 26px 0 0; animation: al-rise .6s .1s both; }
+    #loader .tag { color: #d62828; font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; margin-top: 6px; animation: al-rise .6s .2s both; }
+    #loader .track { margin-top: 34px; width: 220px; height: 14px; border: 3px solid #1e1614; border-radius: 8px; background: #fbe6c8; overflow: hidden; }
+    #loader .fill { width: 90px; height: 100%; background: #d62828; border-left: 2px solid #1e1614; border-right: 2px solid #1e1614; animation: al-bar 1.3s cubic-bezier(.65,0,.35,1) infinite; }
+    #loader .msg { margin-top: 12px; font-size: 14px; color: #5e4e48; }
+    #loader .foot { position: absolute; bottom: 40px; font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: #5e4e48; }
+    @keyframes al-pop { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: scale(1); } }
+    @keyframes al-scan { 0%, 100% { transform: translateX(-5px) rotate(-7deg); } 50% { transform: translateX(5px) rotate(7deg); } }
+    @keyframes al-rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+    @keyframes al-bar { from { transform: translateX(-120px); } to { transform: translateX(240px); } }
+    @media (prefers-reduced-motion: reduce) { #loader .mark, #loader .fill, #loader h1, #loader .tag { animation: none; } }
+  </style>
+</head>
+<body>
+  <div id="loader" role="progressbar" aria-label="AccessLens staff console is loading">
+    <div class="stripe"></div>
+    <div class="mark"><svg width="98" height="98" viewBox="0 0 100 100" aria-hidden="true">
+      <rect width="100" height="100" rx="24" fill="#D62828"/>
+      <circle cx="45" cy="45" r="24" fill="none" stroke="#FFF3E0" stroke-width="7"/>
+      <line x1="62.5" y1="62.5" x2="77" y2="77" stroke="#FFF3E0" stroke-width="8" stroke-linecap="round"/>
+      <path d="M31 53 H39 L51 41 H59" fill="none" stroke="#FFF3E0" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    <h1>AccessLens</h1>
+    <div class="tag">Staff console</div>
+    <div class="track"><div class="fill"></div></div>
+    <div class="msg">Loading reports…</div>
+    <div class="foot">Trinity Tech</div>
+  </div>
+  <div id="app" aria-live="polite"></div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

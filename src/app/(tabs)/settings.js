@@ -6,7 +6,7 @@ import Icon from '../../components/Icon';
 import { Screen, Section, Wrap } from '../../components/Layout';
 import { LogoMark } from '../../components/Logo';
 import Txt from '../../components/Txt';
-import { checkAI } from '../../lib/ai';
+import { aiBaseUrl, checkAI, detectedHosts } from '../../lib/ai';
 import { AFFECTED } from '../../lib/catalog';
 import { setupNotifications } from '../../lib/notify';
 import { colors, fonts, radius, border, TEXT_SCALES } from '../../lib/theme';
@@ -14,7 +14,7 @@ import { useUI } from '../../lib/ui';
 import { useStore } from '../../state/store';
 
 export default function Settings() {
-  const { settings, updateSettings, resetDemo } = useStore();
+  const { settings, updateSettings, resetDemo, sync } = useStore();
   const { say, fs, target } = useUI();
   const [ai, setAi] = useState(null);
   const [checking, setChecking] = useState(false);
@@ -23,13 +23,14 @@ export default function Settings() {
     const r = await checkAI();
     setAi(r);
     setChecking(false);
-    say(r.ok ? 'AI server connected.' : 'AI server not reachable.');
+    say(r.ok ? 'Connected to the AccessLens server.' : 'AccessLens server not reachable.');
+    if (r.ok) sync();
   };
 
   const confirmReset = () => {
     const run = () => resetDemo();
     if (Platform.OS === 'web') return run();
-    Alert.alert('Reset demo data?', 'This restores the sample reports and removes reports you added.', [
+    Alert.alert('Start fresh on this phone?', 'This clears the reports saved on this phone and gives it a new anonymous ID. Township staff keep the reports you already sent.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Reset', style: 'destructive', onPress: run },
     ]);
@@ -90,9 +91,9 @@ export default function Settings() {
         />
       </Section>
 
-      <Section title="AI connection">
+      <Section title="Server connection">
         <Txt v="small" color={colors.muted} style={{ marginBottom: 10 }}>
-          Barrier suggestions come from the AccessLens AI server running on the laptop that started the app.
+          Your reports go to township staff through the AccessLens server, which also runs the AI. It runs on the laptop that started the app.
         </Txt>
         {ai ? (
           <View style={[styles.tip, { marginTop: 0, marginBottom: 10 }]} accessibilityLiveRegion="polite">
@@ -100,7 +101,9 @@ export default function Settings() {
             <View style={{ flex: 1 }}>
               <Txt v="bodyStrong">{ai.ok ? 'Connected' : 'Not connected'}</Txt>
               <Txt v="small" color={colors.muted}>
-                {ai.ok ? ai.model : ai.reason}
+                {ai.ok
+                  ? `${ai.database ? 'Township database connected. ' : ''}${ai.aiOn ? `AI: ${ai.model}` : 'AI is off — you choose the category yourself.'}`
+                  : ai.reason}
               </Txt>
               {ai.url ? (
                 <Txt v="small" color={colors.muted}>
@@ -110,7 +113,28 @@ export default function Settings() {
             </View>
           </View>
         ) : null}
-        <Button small variant="outline" label="Check AI connection" icon={<Icon name="spark" size={18} />} loading={checking} onPress={runCheck} />
+        <Txt v="label" style={{ marginTop: 4, marginBottom: 8 }}>
+          Server address
+        </Txt>
+        <TextInput
+          value={settings.aiUrl}
+          onChangeText={(aiUrl) => {
+            updateSettings({ aiUrl });
+            setAi(null);
+          }}
+          placeholder={aiBaseUrl() ?? 'e.g. 192.168.0.144:8000'}
+          placeholderTextColor={colors.muted}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="url"
+          accessibilityLabel="Server address, optional"
+          accessibilityHint="Leave empty to find it automatically"
+          style={[styles.input, { fontSize: fs(16), minHeight: target, marginBottom: 6 }]}
+        />
+        <Txt v="small" color={colors.muted} style={{ marginBottom: 12 }}>
+          Leave empty to find it automatically{detectedHosts()[0] ? ` (found ${detectedHosts()[0]})` : ''}. Otherwise type the “On your Wi-Fi” address shown when the AI starts.
+        </Txt>
+        <Button small variant="outline" label="Check connection" icon={<Icon name="spark" size={18} />} loading={checking} onPress={runCheck} />
       </Section>
 
       <Section title="About you (optional)">
@@ -150,7 +174,7 @@ export default function Settings() {
             </Txt>
           </View>
         </View>
-        <Button small variant="outline" label="Reset demo data" icon={<Icon name="refresh" size={18} />} onPress={confirmReset} style={{ marginTop: 16 }} />
+        <Button small variant="outline" label="Start fresh on this phone" icon={<Icon name="refresh" size={18} />} onPress={confirmReset} style={{ marginTop: 16 }} />
         <Button small variant="ghost" label="Show welcome again" onPress={() => updateSettings({ onboarded: false })} style={{ marginTop: 6 }} />
       </Section>
     </Screen>

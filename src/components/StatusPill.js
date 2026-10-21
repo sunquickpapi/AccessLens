@@ -5,8 +5,9 @@ import Txt from './Txt';
 
 export default function StatusPill({ report }) {
   const done = report.stage === 'confirmed';
-  const bg = done ? colors.ink : report.stage === 'ai' ? colors.cream : colors.red;
-  const fg = report.stage === 'ai' ? colors.ink : colors.cream;
+  const light = report.synced === false || report.stage === 'ai' || report.stage === 'report' || report.stage === 'closed';
+  const bg = done ? colors.ink : light ? colors.cream : colors.red;
+  const fg = light ? colors.ink : colors.cream;
   return (
     <View
       style={{

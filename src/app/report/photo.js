@@ -1,55 +1,94 @@
-import { useEffect, useRef, useState } from 'react';
-import { Alert, Platform, StyleSheet, TextInput, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import * as Location from 'expo-location';
 import Button from '../../components/Button';
-import Chip from '../../components/Chip';
 import Icon from '../../components/Icon';
 import { Card, Screen, StepHeader } from '../../components/Layout';
-import MapPreview from '../../components/MapPreview';
 import Photo from '../../components/Photo';
 import Txt from '../../components/Txt';
 import { analysePhoto } from '../../lib/ai';
-import { colors, fonts, radius, border } from '../../lib/theme';
+import { applyAI, gpsFromExif, labelOf } from '../../lib/autofill';
+import { CATEGORIES } from '../../lib/catalog';
+import { addressFor, currentPosition } from '../../lib/locate';
+import { colors, border, radius } from '../../lib/theme';
 import { useUI } from '../../lib/ui';
 import { DEMO_REGION } from '../../state/seed';
 import { useStore } from '../../state/store';
 
-let analysisToken = 0;
+let runToken = 0;
 
-// Step 1 — Capture a photo and confirm the location.
+// Step 1 of 2 — snap the barrier. The app then fills in the report by itself:
+// location (GPS), barrier type and effect (AI), what happened and who it affects.
 export default function CaptureStep() {
-  const { draft, updateDraft } = useStore();
-  const { say, fs, target } = useUI();
-  const [locState, setLocState] = useState(draft.location ? 'ready' : 'idle'); // idle | finding | ready | denied
-  const asked = useRef(false);
+  const { draft, updateDraft, settings } = useStore();
+  const { say, target } = useUI();
+  const advanced = useRef(false);
 
   useEffect(() => {
-    say('Step 1 of 4. Take a photo of the barrier, then confirm where it is.');
+    say('Step 1 of 2. Take a photo of the barrier. The app fills in the rest, and you can check it before sending.');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (draft.photoUri && !draft.location && !asked.current) {
-      asked.current = true;
-      findMe();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft.photoUri]);
+  const busy = draft.photoUri && (draft.locState === 'finding' || draft.aiState === 'running');
+  const finished = draft.photoUri && draft.locState === 'ready' && (draft.aiState === 'done' || draft.aiState === 'error');
 
-  function startAnalysis(uri) {
-    const token = ++analysisToken;
-    updateDraft({ aiState: 'running', aiError: null, ai: null, category: null, categoryCorrected: false });
+  // Go to "Check and send" by itself once everything is filled in (once per photo).
+  useEffect(() => {
+    if (finished && !advanced.current) {
+      advanced.current = true;
+      say('Done. Please check the summary.');
+      const t = setTimeout(() => router.push('/report/review'), 700);
+      return () => clearTimeout(t);
+    }
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finished]);
+
+  async function fillLocation(token, fromCamera, exif) {
+    let coords = null;
+    let source = 'none';
+    const saved = fromCamera ? null : gpsFromExif(exif);
+    if (saved) {
+      coords = saved;
+      source = 'photo';
+    } else {
+      const pos = await currentPosition();
+      if (pos) {
+        coords = pos;
+        source = fromCamera ? 'camera' : 'current';
+      }
+    }
+    if (token !== runToken) return;
+    if (!coords) {
+      updateDraft((d) => ({
+        location: { latitude: DEMO_REGION.latitude, longitude: DEMO_REGION.longitude, address: null, confirmed: false },
+        locationSource: 'none',
+        locState: 'ready',
+        suggested: { ...d.suggested, location: null },
+      }));
+      return;
+    }
+    const address = await addressFor(coords);
+    if (token !== runToken) return;
+    const location = { latitude: coords.latitude, longitude: coords.longitude, accuracy: coords.accuracy, address, confirmed: source !== 'current' };
+    updateDraft((d) => ({ location, locationSource: source, locState: 'ready', suggested: { ...d.suggested, location } }));
+  }
+
+  function fillFromAI(token, uri) {
     analysePhoto(uri)
       .then((ai) => {
-        if (token !== analysisToken) return;
-        updateDraft({ ai, aiState: 'done', category: ai.noBarrier ? null : ai.category });
+        if (token !== runToken) return;
+        updateDraft((d) => applyAI(d, ai, settings.getAround));
       })
       .catch((e) => {
-        if (token !== analysisToken) return;
-        const offline = e?.name === 'AIUnavailableError' || /reachable|address/i.test(e?.message ?? '');
-        updateDraft({ aiState: 'error', aiError: offline ? 'The AI server isn’t reachable.' : e?.message ?? null });
+        if (token !== runToken) return;
+        updateDraft((d) => ({
+          aiState: 'error',
+          aiError: e?.message ?? null,
+          // Without the AI we can still pre-tick who it affects from the resident's own settings.
+          affected: d.affected.length ? d.affected : settings.getAround,
+        }));
       });
   }
 
@@ -64,92 +103,92 @@ export default function CaptureStep() {
         }
         result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.7, exif: false });
       } else {
-        result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.7 });
+        result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.7, exif: true });
       }
       if (result.canceled || !result.assets?.[0]) return;
-      const uri = result.assets[0].uri;
-      updateDraft({ photoUri: uri });
-      startAnalysis(uri);
-      say('Photo added. AI is checking it while you confirm the location.');
+      const asset = result.assets[0];
+      const token = ++runToken;
+      advanced.current = false;
+      updateDraft({
+        photoUri: asset.uri,
+        location: null,
+        locationSource: null,
+        locState: 'finding',
+        ai: null,
+        aiState: 'running',
+        aiError: null,
+        category: null,
+        categoryCorrected: false,
+        severity: null,
+        impacts: [],
+        affected: [],
+        suggested: {},
+      });
+      say('Photo added. Filling in your report.');
+      fillFromAI(token, asset.uri);
+      fillLocation(token, fromCamera, asset.exif);
     } catch {
       Alert.alert('Could not open the camera', 'Please try again or choose a photo from your gallery.');
     }
   }
 
-  async function addressFor(coords) {
-    try {
-      const [a] = await Location.reverseGeocodeAsync(coords);
-      if (!a) return null;
-      return [a.name, a.street, a.district || a.subregion, a.city].filter(Boolean).filter((v, i, arr) => arr.indexOf(v) === i).join(', ');
-    } catch {
-      return null;
-    }
-  }
-
-  async function findMe() {
-    setLocState('finding');
-    try {
-      const perm = await Location.requestForegroundPermissionsAsync();
-      if (!perm.granted) {
-        setLocState('denied');
-        updateDraft({ location: { latitude: DEMO_REGION.latitude, longitude: DEMO_REGION.longitude, address: null, confirmed: false } });
-        return;
-      }
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      const coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-      const address = await addressFor(coords);
-      updateDraft({ location: { ...coords, address, accuracy: pos.coords.accuracy, confirmed: false } });
-      setLocState('ready');
-      say(address ? `Location found: ${address}. Please confirm.` : 'Location found. Please confirm.');
-    } catch {
-      setLocState('denied');
-      updateDraft({ location: { latitude: DEMO_REGION.latitude, longitude: DEMO_REGION.longitude, address: null, confirmed: false } });
-    }
-  }
-
-  async function onDragEnd(coords) {
-    const address = await addressFor(coords);
-    updateDraft({ location: { ...coords, address, confirmed: false } });
-  }
-
-  const loc = draft.location;
-  const canContinue = !!draft.photoUri && !!loc?.confirmed;
-  const region = loc ? { latitude: loc.latitude, longitude: loc.longitude, latitudeDelta: 0.003, longitudeDelta: 0.003 } : DEMO_REGION;
+  const ai = draft.ai;
+  const locRow =
+    draft.locState === 'finding'
+      ? { state: 'busy', text: 'Finding where the barrier is…' }
+      : draft.locationSource === 'none'
+        ? { state: 'warn', text: 'No location access. You’ll place the pin next.' }
+        : { state: 'done', text: draft.location?.address ?? 'Location found' };
+  const catRow =
+    draft.aiState === 'running'
+      ? { state: 'busy', text: 'Identifying the barrier…' }
+      : draft.aiState === 'error'
+        ? { state: 'warn', text: 'AI unavailable. You’ll choose the type next.' }
+        : ai?.noBarrier
+          ? { state: 'warn', text: ai.reason === 'not_walkway' ? 'Doesn’t look like a walkway. No barrier found.' : 'No barrier spotted. You can still choose a type.' }
+          : { state: 'done', text: `${CATEGORIES[draft.category]?.label ?? '—'} · ${Math.round((ai?.confidence ?? 0) * 100)}%` };
+  const sevRow =
+    draft.aiState === 'running'
+      ? { state: 'busy', text: 'Estimating the effect on the journey…' }
+      : draft.severity
+        ? { state: 'done', text: `${labelOf.severity(draft.severity)}${draft.affected.length ? ` · ${draft.affected.length} group${draft.affected.length > 1 ? 's' : ''} affected` : ''}` }
+        : { state: 'warn', text: 'You’ll choose the effect next.' };
 
   return (
     <Screen
       footer={
-        <Button
-          label="Next: describe the impact"
-          disabled={!canContinue}
-          hint={canContinue ? undefined : 'Add a photo and confirm the location first'}
-          onPress={() => router.push('/report/describe')}
-        />
+        draft.photoUri ? (
+          <Button
+            label={busy ? 'Filling in your report…' : 'Next: check and send'}
+            disabled={!finished}
+            loading={busy}
+            onPress={() => router.push('/report/review')}
+          />
+        ) : null
       }
     >
-      <StepHeader step={1} title="Capture the barrier" subtitle="Take a clear photo that shows the barrier and the path around it." />
+      <StepHeader
+        step={1}
+        title="Capture the barrier"
+        subtitle={draft.photoUri ? 'Your photo is being checked. This takes a few seconds.' : 'Snap a clear photo. The app fills in the rest, and you check it before sending.'}
+      />
 
       {draft.photoUri ? (
-        <View style={{ gap: 10 }}>
-          <Photo uri={draft.photoUri} label="Your photo of the barrier" />
+        <View style={{ gap: 12 }}>
+          <Photo uri={draft.photoUri} ai={ai} showBox={!!ai?.box} label="Your photo of the barrier" />
           <View style={{ flexDirection: 'row', gap: 10 }}>
             <Button style={{ flex: 1 }} small variant="outline" label="Retake" icon={<Icon name="camera" size={18} />} onPress={() => pick(true)} />
             <Button style={{ flex: 1 }} small variant="outline" label="Gallery" icon={<Icon name="image" size={18} />} onPress={() => pick(false)} />
           </View>
-          <View style={styles.aiNote} accessibilityLiveRegion="polite">
-            <Icon name="spark" size={20} color={colors.red} />
-            <Txt v="small" style={{ flex: 1 }}>
-              {draft.aiState === 'running'
-                ? 'AI is checking your photo…'
-                : draft.aiState === 'done'
-                  ? draft.ai?.noBarrier
-                    ? 'AI didn’t spot a barrier — you can still choose one in step 3.'
-                    : 'AI check finished — you will review it in step 3.'
-                  : draft.aiState === 'error'
-                    ? 'AI check unavailable — you can choose the category yourself.'
-                    : ''}
-            </Txt>
-          </View>
+          <Card tone="paper" style={{ gap: 2 }}>
+            <View style={styles.cardHead}>
+              <Icon name="spark" size={20} color={colors.red} />
+              <Txt v="label">Filling in your report</Txt>
+            </View>
+            <Check label="Location" {...locRow} />
+            <Check label="Barrier type" {...catRow} />
+            <Check label="Effect & who it affects" {...sevRow} last />
+          </Card>
         </View>
       ) : (
         <View style={{ gap: 12 }}>
@@ -165,80 +204,35 @@ export default function CaptureStep() {
             <Txt v="label">Photo tips</Txt>
             <Txt v="small">• Stand back so the whole barrier is in the frame.</Txt>
             <Txt v="small">• Include some of the walkway around it.</Txt>
+            <Txt v="small">• Take it where the barrier is. The app uses your location.</Txt>
             <Txt v="small">• Avoid showing people’s faces or number plates up close.</Txt>
           </Card>
         </View>
       )}
-
-      {draft.photoUri ? (
-        <View style={{ marginTop: 26 }}>
-          <Txt v="label">Where is it?</Txt>
-          <View style={styles.rule} />
-          {locState === 'finding' ? (
-            <Card tone="paper">
-              <Txt v="bodyStrong" accessibilityLiveRegion="polite">
-                Finding your location…
-              </Txt>
-            </Card>
-          ) : loc ? (
-            <View style={{ gap: 12 }}>
-              <MapPreview
-                region={region}
-                height={200}
-                draggable
-                pins={[{ id: 'me', latitude: loc.latitude, longitude: loc.longitude, title: 'Barrier location', active: true }]}
-                onDragEnd={onDragEnd}
-                label="Map with the barrier location pin. Press and drag the pin to adjust it."
-              />
-              <View style={styles.addr}>
-                <Icon name="pin" color={colors.red} />
-                <View style={{ flex: 1 }}>
-                  <Txt v="bodyStrong">{loc.address ?? (locState === 'denied' ? 'Location access is off' : 'Pinned location')}</Txt>
-                  <Txt v="small" color={colors.muted}>
-                    {locState === 'denied'
-                      ? Platform.OS === 'web'
-                        ? 'Drag the pin to the barrier, or describe a landmark below.'
-                        : 'Press and drag the pin to the barrier, or describe a landmark below.'
-                      : 'Not quite right? Press and drag the pin.'}
-                  </Txt>
-                </View>
-              </View>
-              <Button small variant="ghost" label="Use my current location" icon={<Icon name="locate" size={20} />} onPress={findMe} />
-              <TextInput
-                value={draft.landmark}
-                onChangeText={(landmark) => updateDraft({ landmark })}
-                placeholder="Nearby landmark (optional), e.g. outside Block C"
-                placeholderTextColor={colors.muted}
-                accessibilityLabel="Nearby landmark, optional"
-                style={[styles.input, { fontSize: fs(16), minHeight: target }]}
-              />
-              <Chip
-                block
-                label="Yes, this is where the barrier is"
-                selected={!!loc.confirmed}
-                onPress={() => updateDraft({ location: { ...loc, confirmed: !loc.confirmed } })}
-              />
-            </View>
-          ) : (
-            <Button variant="outline" label="Find my location" icon={<Icon name="locate" />} onPress={findMe} />
-          )}
-        </View>
-      ) : null}
     </Screen>
   );
 }
 
+function Check({ label, state, text, last }) {
+  return (
+    <View style={[styles.check, last && { borderBottomWidth: 0 }]} accessible accessibilityLabel={`${label}: ${text}`} accessibilityLiveRegion="polite">
+      <View style={[styles.dot, state === 'done' && styles.dotDone, state === 'warn' && styles.dotWarn]}>
+        {state === 'busy' ? <ActivityIndicator size="small" color={colors.red} /> : <Icon name={state === 'done' ? 'check' : 'edit'} size={14} color={state === 'done' ? colors.cream : colors.ink} />}
+      </View>
+      <View style={{ flex: 1 }}>
+        <Txt v="label" color={colors.muted}>
+          {label}
+        </Txt>
+        <Txt v="bodyStrong">{text}</Txt>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  rule: { height: 3, backgroundColor: colors.ink, marginTop: 8, marginBottom: 14 },
-  aiNote: { flexDirection: 'row', gap: 8, alignItems: 'center', minHeight: 24 },
-  addr: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
-  input: {
-    borderWidth: border,
-    borderColor: colors.ink,
-    borderRadius: radius.md,
-    paddingHorizontal: 14,
-    fontFamily: fonts.body,
-    color: colors.ink,
-    backgroundColor: colors.cream,
-  },
+  cardHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  check: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderColor: colors.ink },
+  dot: { width: 28, height: 28, borderRadius: radius.pill, borderWidth: border, borderColor: colors.ink, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.cream },
+  dotDone: { backgroundColor: colors.ink },
+  dotWarn: { backgroundColor: colors.paper },
 });

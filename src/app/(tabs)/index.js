@@ -15,9 +15,33 @@ import { DEMO_REGION } from '../../state/seed';
 import { useStore } from '../../state/store';
 
 export default function Home() {
-  const { reports, updates, settings, resetDraft } = useStore();
-  const open = reports.filter((r) => r.stage !== 'confirmed');
-  const resolved = reports.length - open.length;
+  const { reports, updates, settings, resetDraft, publicReports, connection, sync } = useStore();
+  const open = reports.filter((r) => r.stage !== 'confirmed' && r.stage !== 'closed');
+  const resolved = reports.filter((r) => r.stage === 'confirmed').length;
+  const mineIds = new Set(reports.map((r) => r.id));
+  // Everyone's reports from the township database, plus mine (including any still uploading).
+  const pins = [
+    ...publicReports
+      .filter((p) => !mineIds.has(p.id) && p.latitude != null)
+      .map((p) => ({
+        id: `pub-${p.id}`,
+        latitude: p.latitude,
+        longitude: p.longitude,
+        title: `${CATEGORIES[p.category]?.label ?? 'Barrier'} · reported by a neighbour`,
+        subtitle: p.address,
+        active: p.stage !== 'confirmed',
+      })),
+    ...reports
+      .filter((r) => r.location)
+      .map((r) => ({
+        id: r.id,
+        latitude: r.location.latitude,
+        longitude: r.location.longitude,
+        title: `${r.code} · ${CATEGORIES[r.category].label} (yours)`,
+        subtitle: r.location.address,
+        active: r.stage !== 'confirmed' && r.stage !== 'closed',
+      })),
+  ];
   const latest = updates[0];
   const start = () => {
     resetDraft();
@@ -29,6 +53,23 @@ export default function Home() {
       <View style={styles.top}>
         <Wordmark size={40} />
       </View>
+      <Pressable
+        onPress={sync}
+        accessibilityRole="button"
+        accessibilityLabel={
+          connection.ok === false ? `Offline. ${connection.error ?? ''} Tap to try again.` : 'Connected to township staff. Tap to refresh.'
+        }
+        style={styles.conn}
+      >
+        <View style={[styles.connDot, { backgroundColor: connection.ok === false ? colors.red : connection.ok ? colors.ink : colors.paper }]} />
+        <Txt v="small" color={colors.muted} style={{ flex: 1 }}>
+          {connection.ok === false
+            ? 'Offline — new reports will send when you’re back online. Tap to retry.'
+            : connection.ok
+              ? `Connected to township staff${connection.lastSync ? ` · updated ${timeAgo(connection.lastSync)}` : ''}`
+              : 'Connecting to township staff…'}
+        </Txt>
+      </Pressable>
 
       {/* Primary action */}
       <View style={styles.hero}>
@@ -81,19 +122,15 @@ export default function Home() {
         <MapPreview
           region={DEMO_REGION}
           height={190}
-          label={`Map showing ${reports.length} reports in your area`}
-          pins={reports
-            .filter((r) => r.location)
-            .map((r) => ({
-              id: r.id,
-              latitude: r.location.latitude,
-              longitude: r.location.longitude,
-              title: `${r.code} · ${CATEGORIES[r.category].label}`,
-              subtitle: r.location.address,
-              active: r.stage !== 'confirmed',
-            }))}
-          onPressPin={(id) => router.push(`/track/${id}`)}
+          label={`Map showing ${pins.length} reported barriers in your area, ${reports.length} of them yours`}
+          pins={pins}
+          onPressPin={(id) => {
+            if (!String(id).startsWith('pub-')) router.push(`/track/${id}`);
+          }}
         />
+        <Txt v="small" color={colors.muted} style={{ marginTop: 8 }}>
+          Red pins are open barriers reported by you and your neighbours.
+        </Txt>
         {open.slice(0, 2).map((r) => (
           <Pressable key={r.id} onPress={() => router.push(`/track/${r.id}`)} style={styles.listRow} accessibilityRole="button" accessibilityLabel={`${r.code}, ${CATEGORIES[r.category].label}, ${r.location?.address}`}>
             <View style={{ flex: 1, gap: 4 }}>
@@ -133,7 +170,9 @@ export default function Home() {
 }
 
 const styles = StyleSheet.create({
-  top: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  top: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  conn: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 32, marginBottom: 10 },
+  connDot: { width: 10, height: 10, borderRadius: 5, borderWidth: 2, borderColor: colors.ink },
   hero: { backgroundColor: colors.red, borderRadius: radius.lg, borderWidth: border, borderColor: colors.ink, padding: 20 },
   stats: { flexDirection: 'row', marginTop: 16, borderWidth: border, borderColor: colors.ink, borderRadius: radius.lg, overflow: 'hidden' },
   stat: { flex: 1, padding: 16, borderColor: colors.ink, gap: 2 },

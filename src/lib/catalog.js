@@ -67,7 +67,10 @@ export function stageIndex(report) {
 }
 
 export function statusLabel(report) {
+  if (report.synced === false) return 'Waiting to upload';
   switch (report.stage) {
+    case 'closed':
+      return report.rejected ? 'Not accepted' : 'Closed';
     case 'report':
       return 'Submitted';
     case 'ai':

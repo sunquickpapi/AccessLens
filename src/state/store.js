@@ -1,10 +1,18 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CATEGORIES, STAGES } from '../lib/catalog';
+import { setManualAIUrl } from '../lib/ai';
+import { api, uploadReport } from '../lib/api';
 import { notifyUpdate } from '../lib/notify';
-import { seedReports, seedUpdates } from './seed';
+import { autoFieldsFor } from '../lib/autofill';
 
-const KEY = 'accesslens/v1';
+// Reports and updates live in the AccessLens server database. The app keeps a
+// copy on the phone so it still opens offline, and queues new reports until
+// the server can be reached.
+
+const KEY = 'accesslens/v2';
+const POLL_MS = 10000;
 
 const DEFAULT_SETTINGS = {
   onboarded: false,
@@ -15,11 +23,17 @@ const DEFAULT_SETTINGS = {
   notifications: true,
   getAround: [], // optional: how the resident gets around (pre-fills "who it affects")
   name: '',
+  aiUrl: '', // optional manual server address
+  residentToken: null, // this phone's anonymous ID on the server
 };
 
 const EMPTY_DRAFT = {
+  startedAt: null,
   photoUri: null,
   location: null, // { latitude, longitude, address, confirmed }
+  locationSource: null, // camera | photo | current | manual | none
+  locState: 'idle', // idle | finding | ready
+  suggested: {}, // what the app filled in from the photo (see lib/autofill.js)
   landmark: '',
   ai: null, // AI suggestion
   aiState: 'idle', // idle | running | done | error
@@ -40,27 +54,43 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function nextCode(reports) {
-  const n = reports.reduce((m, r) => Math.max(m, parseInt(r.code.split('-')[1], 10) || 0), 140) + 1;
-  return `AL-${String(n).padStart(4, '0')}`;
-}
-
 export function StoreProvider({ children }) {
   const [loaded, setLoaded] = useState(false);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
-  const [reports, setReports] = useState(seedReports);
-  const [updates, setUpdates] = useState(seedUpdates);
+  const [reports, setReports] = useState([]); // server reports
+  const [pending, setPending] = useState([]); // reports waiting to upload
+  const [updates, setUpdates] = useState([]);
+  const [publicReports, setPublicReports] = useState([]);
+  const [idMap, setIdMap] = useState({}); // local id -> server id after upload
   const [draft, setDraft] = useState(EMPTY_DRAFT);
-  const firstSave = useRef(true);
+  const [connection, setConnection] = useState({ ok: null, error: null, lastSync: null, syncing: false });
 
+  const tokenRef = useRef(null);
+  const seenUpdates = useRef(null);
+  const syncing = useRef(false);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const pendingRef = useRef(pending);
+  pendingRef.current = pending;
+
+  // ---------- load & save the phone's copy
   useEffect(() => {
     AsyncStorage.getItem(KEY)
-      .then((raw) => {
-        if (!raw) return;
+      .then(async (raw) => {
+        if (!raw) {
+          // Upgrading from the first version: keep the resident's settings, drop the old demo reports.
+          const old = await AsyncStorage.getItem('accesslens/v1').catch(() => null);
+          const oldSettings = old ? JSON.parse(old)?.settings : null;
+          if (oldSettings) setSettings({ ...DEFAULT_SETTINGS, ...oldSettings, residentToken: null });
+          return;
+        }
         const data = JSON.parse(raw);
         if (data.settings) setSettings({ ...DEFAULT_SETTINGS, ...data.settings });
         if (data.reports) setReports(data.reports);
+        if (data.pending) setPending(data.pending);
         if (data.updates) setUpdates(data.updates);
+        if (data.idMap) setIdMap(data.idMap);
+        if (data.updates) seenUpdates.current = new Set(data.updates.map((u) => u.id));
       })
       .catch(() => {})
       .finally(() => setLoaded(true));
@@ -68,129 +98,221 @@ export function StoreProvider({ children }) {
 
   useEffect(() => {
     if (!loaded) return;
-    if (firstSave.current) {
-      firstSave.current = false;
-      return;
-    }
-    AsyncStorage.setItem(KEY, JSON.stringify({ settings, reports, updates })).catch(() => {});
-  }, [loaded, settings, reports, updates]);
+    AsyncStorage.setItem(KEY, JSON.stringify({ settings, reports, pending, updates, idMap })).catch(() => {});
+  }, [loaded, settings, reports, pending, updates, idMap]);
+
+  useEffect(() => {
+    setManualAIUrl(settings.aiUrl);
+  }, [settings.aiUrl]);
+
+  tokenRef.current = settings.residentToken;
 
   const updateSettings = useCallback((patch) => setSettings((s) => ({ ...s, ...patch })), []);
-  const updateDraft = useCallback((patch) => setDraft((d) => ({ ...d, ...patch })), []);
-  const resetDraft = useCallback(() => setDraft(EMPTY_DRAFT), []);
+  // patch can be an object or a function of the current draft
+  const updateDraft = useCallback((patch) => setDraft((d) => ({ ...d, ...(typeof patch === 'function' ? patch(d) : patch) })), []);
+  const resetDraft = useCallback(() => setDraft({ ...EMPTY_DRAFT, startedAt: nowIso() }), []);
 
-  const pushUpdate = useCallback(
-    (reportId, title, body) => {
-      const item = { id: `u${Date.now()}${Math.random().toString(36).slice(2, 6)}`, reportId, title, body, at: nowIso(), read: false };
-      setUpdates((u) => [item, ...u]);
-      if (settings.notifications) notifyUpdate(title, body, reportId);
+  // ---------- server sync
+  const ensureToken = useCallback(async (force = false) => {
+    if (tokenRef.current && !force) return tokenRef.current;
+    const s = settingsRef.current;
+    const { token } = await api.register({ name: s.name, getAround: s.getAround });
+    tokenRef.current = token;
+    setSettings((cur) => ({ ...cur, residentToken: token }));
+    return token;
+  }, []);
+
+  const withToken = useCallback(
+    async (fn) => {
+      const token = await ensureToken();
+      try {
+        return await fn(token);
+      } catch (e) {
+        // The server's database was reset: register this phone again.
+        if (e?.status === 401) return fn(await ensureToken(true));
+        throw e;
+      }
     },
-    [settings.notifications]
+    [ensureToken]
   );
 
+  const sync = useCallback(async () => {
+    if (syncing.current) return;
+    syncing.current = true;
+    setConnection((c) => ({ ...c, syncing: true }));
+    try {
+      // 1. upload anything that was waiting
+      const queue = pendingRef.current;
+      for (const item of queue) {
+        try {
+          const created = await withToken((t) => uploadReport(t, item));
+          setPending((p) => p.filter((x) => x.id !== item.id));
+          setIdMap((m) => ({ ...m, [item.id]: created.id }));
+        } catch (e) {
+          if (e?.status && e.status >= 400 && e.status < 500 && e.status !== 401) {
+            // the server refused this report; keep it but mark the problem
+            setPending((p) => p.map((x) => (x.id === item.id ? { ...x, uploadError: e.message } : x)));
+          } else {
+            throw e;
+          }
+        }
+      }
+      // 2. download my reports and updates
+      const [{ reports: mine }, { updates: ups }] = await withToken((t) => Promise.all([api.myReports(t), api.myUpdates(t)]));
+      setReports(mine);
+      setUpdates(ups);
+      // 3. phone notifications for updates we haven't seen before
+      if (seenUpdates.current) {
+        const fresh = ups.filter((u) => !u.read && !seenUpdates.current.has(u.id));
+        if (settingsRef.current.notifications) fresh.slice(0, 3).forEach((u) => notifyUpdate(u.title, u.body, u.reportId));
+      }
+      seenUpdates.current = new Set(ups.map((u) => u.id));
+      api.publicReports().then((d) => setPublicReports(d.reports)).catch(() => {});
+      setConnection({ ok: true, error: null, lastSync: nowIso(), syncing: false });
+    } catch (e) {
+      setConnection((c) => ({ ...c, ok: false, error: e?.message ?? 'Can’t reach the server', syncing: false }));
+    } finally {
+      syncing.current = false;
+    }
+  }, [withToken]);
+
+  // poll while the app is open
+  useEffect(() => {
+    if (!loaded || !settings.onboarded) return undefined;
+    sync();
+    let timer = setInterval(sync, POLL_MS);
+    const sub = AppState.addEventListener('change', (state) => {
+      clearInterval(timer);
+      if (state === 'active') {
+        sync();
+        timer = setInterval(sync, POLL_MS);
+      }
+    });
+    return () => {
+      clearInterval(timer);
+      sub.remove();
+    };
+  }, [loaded, settings.onboarded, settings.aiUrl, sync]);
+
+  // keep the resident's optional profile in step with the server
+  useEffect(() => {
+    if (!loaded || !settings.residentToken) return undefined;
+    const t = setTimeout(() => {
+      api.updateProfile(settings.residentToken, { name: settings.name, getAround: settings.getAround }).catch(() => {});
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [loaded, settings.residentToken, settings.name, settings.getAround]);
+
+  // ---------- reporting
   const submitDraft = useCallback(() => {
     const at = nowIso();
-    const created = {
-        id: `r${Date.now()}`,
-        code: nextCode(reports),
-        createdAt: at,
-        photoUri: draft.photoUri,
-        location: draft.location,
-        landmark: draft.landmark,
-        ai: draft.ai,
-        category: draft.category,
-        categoryCorrected: draft.categoryCorrected,
-        affected: draft.affected,
-        impacts: draft.impacts,
-        severity: draft.severity,
-        description: draft.description,
-        voiceUri: draft.voiceUri,
-        voiceSeconds: draft.voiceSeconds,
-        stage: 'ai',
-        assignedTo: null,
-        completionPhotoUri: null,
-        timeline: [
-          { stage: 'report', at, note: 'Photo and location submitted.' },
-          {
-            stage: 'ai',
-            at,
-            note: !draft.ai
-              ? `AI check unavailable; you chose ${CATEGORIES[draft.category].label}.`
-              : draft.ai.noBarrier
-                ? `AI didn’t spot a barrier; you chose ${CATEGORIES[draft.category].label}.`
-                : draft.categoryCorrected
-                  ? `AI suggested ${CATEGORIES[draft.ai.category]?.label ?? 'a category'}; you corrected it to ${CATEGORIES[draft.category].label}.`
-                  : `AI flagged possible ${CATEGORIES[draft.category].noun.replace(/^an? /, '')}; you confirmed it.`,
-          },
-        ],
-      };
-    setReports((list) => [created, ...list]);
-    pushUpdate(created.id, `${created.code} received`, 'Thanks. Township staff will review your report and assign the right team.');
-    return created;
-  }, [draft, reports, pushUpdate]);
+    const started = draft.startedAt ? new Date(draft.startedAt).getTime() : null;
+    const local = {
+      id: `local-${Date.now()}`,
+      code: 'Sending…',
+      createdAt: at,
+      photoUri: draft.photoUri,
+      location: draft.location,
+      landmark: draft.landmark,
+      ai: draft.ai,
+      category: draft.category,
+      categoryCorrected: draft.categoryCorrected,
+      affected: draft.affected,
+      impacts: draft.impacts,
+      severity: draft.severity,
+      autoFields: autoFieldsFor(draft),
+      locationSource: draft.locationSource,
+      description: draft.description,
+      voiceUri: draft.voiceUri,
+      voiceSeconds: draft.voiceSeconds,
+      reportSeconds: started ? Math.round((Date.now() - started) / 1000) : null,
+      stage: 'report',
+      assignedTo: null,
+      completionPhotoUri: null,
+      synced: false,
+      timeline: [{ stage: 'report', at, note: `Photo and location ready to send (${CATEGORIES[draft.category].label}).` }],
+    };
+    setPending((p) => [local, ...p]);
+    setDraft(EMPTY_DRAFT);
+    setTimeout(sync, 0);
+    return local;
+  }, [draft, sync]);
 
-  // Prototype-only: plays the staff side of the journey so the full
-  // report-to-resolution workflow can be demonstrated without the website.
-  const simulateStaffStep = useCallback(
-    (id, completionPhotoUri) => {
-      const r = reports.find((x) => x.id === id);
-      if (!r) return;
-      const at = nowIso();
-      let patch;
-      let msg;
-      if (r.stage === 'report' || r.stage === 'ai') {
-        patch = { stage: 'review', assignedTo: null };
-        msg = ['Report verified', `Staff checked ${r.code} and confirmed it is ${CATEGORIES[r.category].noun}.`];
-      } else if (r.stage === 'review' && !r.assignedTo) {
-        const team = CATEGORIES[r.category].team;
-        patch = { assignedTo: team };
-        msg = ['Repair work assigned', `${r.code} has been assigned to the ${team} team for inspection and repair.`];
-      } else if (r.stage === 'review') {
-        patch = { stage: 'completion', completionPhotoUri: completionPhotoUri ?? 'illustration:fixed' };
-        msg = ['Fix submitted', `The ${r.assignedTo} team uploaded a completion photo for ${r.code}. Staff are checking it.`];
-      } else if (r.stage === 'completion') {
-        patch = { stage: 'confirmed', resolvedAt: at };
-        msg = ['Barrier resolved', `Staff confirmed ${r.code} is fixed. Thank you for making the walkway better for everyone.`];
-      } else {
-        return;
-      }
-      const stage = patch.stage ?? r.stage;
-      setReports((list) =>
-        list.map((x) => (x.id === id ? { ...x, ...patch, timeline: [...x.timeline, { stage, at, note: msg[1] }] } : x))
-      );
-      pushUpdate(id, msg[0], msg[1]);
+  const sendFeedback = useCallback(
+    async (id, fixed, comment, extra) => {
+      const { report } = await withToken((t) => api.feedback(t, id, fixed, comment, extra));
+      setReports((list) => list.map((r) => (r.id === report.id ? report : r)));
     },
-    [reports, pushUpdate]
+    [withToken]
   );
 
-  const markAllRead = useCallback(() => setUpdates((u) => u.map((x) => ({ ...x, read: true }))), []);
-  const markRead = useCallback((reportId) => setUpdates((u) => u.map((x) => (x.reportId === reportId ? { ...x, read: true } : x))), []);
+  const markAllRead = useCallback(() => {
+    setUpdates((u) => u.map((x) => ({ ...x, read: true })));
+    withToken((t) => api.markRead(t)).catch(() => {});
+  }, [withToken]);
 
+  const markRead = useCallback(
+    (reportId) => {
+      let changed = false;
+      setUpdates((u) =>
+        u.map((x) => {
+          if (x.reportId === reportId && !x.read) {
+            changed = true;
+            return { ...x, read: true };
+          }
+          return x;
+        })
+      );
+      if (changed && !String(reportId).startsWith('local-')) withToken((t) => api.markRead(t, reportId)).catch(() => {});
+    },
+    [withToken]
+  );
+
+  // Forget this phone's data (the server keeps its records).
   const resetDemo = useCallback(() => {
-    setReports(seedReports);
-    setUpdates(seedUpdates);
+    setReports([]);
+    setPending([]);
+    setUpdates([]);
+    setIdMap({});
     setDraft(EMPTY_DRAFT);
-  }, []);
+    seenUpdates.current = null;
+    tokenRef.current = null;
+    setSettings((s) => ({ ...s, residentToken: null }));
+    setTimeout(sync, 0);
+  }, [sync]);
+
+  const allReports = useMemo(() => [...pending, ...reports], [pending, reports]);
+  const findReport = useCallback(
+    (id) => {
+      const real = idMap[id] ?? id;
+      return allReports.find((r) => r.id === real || r.id === id);
+    },
+    [allReports, idMap]
+  );
 
   const value = useMemo(
     () => ({
       loaded,
       settings,
       updateSettings,
-      reports,
+      reports: allReports,
+      publicReports,
       updates,
       unread: updates.filter((u) => !u.read).length,
+      connection,
+      sync,
+      findReport,
       draft,
       updateDraft,
       resetDraft,
       submitDraft,
-      simulateStaffStep,
+      sendFeedback,
       markAllRead,
       markRead,
       resetDemo,
       stages: STAGES,
     }),
-    [loaded, settings, updateSettings, reports, updates, draft, updateDraft, resetDraft, submitDraft, simulateStaffStep, markAllRead, markRead, resetDemo]
+    [loaded, settings, updateSettings, allReports, publicReports, updates, connection, sync, findReport, draft, updateDraft, resetDraft, submitDraft, sendFeedback, markAllRead, markRead, resetDemo]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -40,8 +40,9 @@ export function Section({ title, children, right }) {
   );
 }
 
-// Progress header for the 4-part report flow.
-export function StepHeader({ step, total = 4, title, subtitle }) {
+// Header for the report flow: "Step 1 / 2" with progress bars, or, for the
+// edit sheets opened from "Check and send", a simple back + "Edit" header.
+export function StepHeader({ step, total = 2, title, subtitle, edit = false }) {
   const { resetDraft } = useStore();
   return (
     <View style={{ marginBottom: 18 }}>
@@ -49,33 +50,39 @@ export function StepHeader({ step, total = 4, title, subtitle }) {
         <Pressable
           onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
           accessibilityRole="button"
-          accessibilityLabel="Go back"
+          accessibilityLabel={edit ? 'Done, back to check and send' : 'Go back'}
           hitSlop={12}
           style={styles.iconBtn}
         >
           <Icon name="back" />
         </Pressable>
-        <Txt v="label" accessibilityLabel={`Step ${step} of ${total}`}>
-          Step {step} / {total}
+        <Txt v="label" accessibilityLabel={edit ? 'Editing your report' : `Step ${step} of ${total}`}>
+          {edit ? 'Edit' : `Step ${step} / ${total}`}
         </Txt>
-        <Pressable
-          onPress={() => {
-            resetDraft();
-            router.dismissTo('/');
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="Cancel report"
-          hitSlop={12}
-          style={styles.iconBtn}
-        >
-          <Icon name="close" />
-        </Pressable>
+        {edit ? (
+          <View style={{ width: 48 }} />
+        ) : (
+          <Pressable
+            onPress={() => {
+              resetDraft();
+              router.dismissTo('/');
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel report"
+            hitSlop={12}
+            style={styles.iconBtn}
+          >
+            <Icon name="close" />
+          </Pressable>
+        )}
       </View>
-      <View style={styles.bars} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-        {Array.from({ length: total }).map((_, i) => (
-          <View key={i} style={[styles.bar, i < step && { backgroundColor: colors.red }]} />
-        ))}
-      </View>
+      {edit ? null : (
+        <View style={styles.bars} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+          {Array.from({ length: total }).map((_, i) => (
+            <View key={i} style={[styles.bar, i < step && { backgroundColor: colors.red }]} />
+          ))}
+        </View>
+      )}
       <Txt v="display" style={{ marginTop: 18 }}>
         {title}
       </Txt>

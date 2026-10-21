@@ -20,18 +20,24 @@ const FILTERS = [
 ];
 
 export default function MyReports() {
-  const { reports, resetDraft } = useStore();
+  const { reports, resetDraft, sync, connection } = useStore();
   const [filter, setFilter] = useState('all');
-  const list = reports.filter((r) => (filter === 'all' ? true : filter === 'open' ? r.stage !== 'confirmed' : r.stage === 'confirmed'));
+  const finished = (r) => ['confirmed', 'closed'].includes(r.stage);
+  const list = reports.filter((r) => (filter === 'all' ? true : filter === 'open' ? !finished(r) : finished(r)));
 
   return (
-    <Screen>
+    <Screen onRefresh={sync}>
       <Txt v="display" style={{ marginTop: 8 }}>
         My reports
       </Txt>
       <Txt v="body" color={colors.muted} style={{ marginTop: 4, marginBottom: 16 }}>
-        Track progress from report to fix.
+        Track progress from report to fix. Pull down to refresh.
       </Txt>
+      {connection.ok === false ? (
+        <Txt v="small" color={colors.red} style={{ marginBottom: 12 }}>
+          Offline: showing the last saved copy. {connection.error}
+        </Txt>
+      ) : null}
       <Wrap>
         {FILTERS.map((f) => (
           <Chip key={f.key} multi={false} label={f.label} selected={filter === f.key} onPress={() => setFilter(f.key)} />
@@ -40,13 +46,15 @@ export default function MyReports() {
 
       <View style={{ gap: 14, marginTop: 18 }}>
         {list.map((r) => {
-          const idx = stageIndex(r);
+          const closed = r.stage === 'closed';
+          const idx = Math.max(0, stageIndex(r));
+          const code = r.synced === false ? 'New' : r.code;
           return (
             <Pressable
               key={r.id}
               onPress={() => router.push(`/track/${r.id}`)}
               accessibilityRole="button"
-              accessibilityLabel={`${r.code}, ${CATEGORIES[r.category].label}, ${r.location?.address ?? ''}. Stage ${idx + 1} of 5, ${STAGES[idx].label}.`}
+              accessibilityLabel={`${code}, ${CATEGORIES[r.category].label}, ${r.location?.address ?? ''}. ${closed ? 'Closed' : `Stage ${idx + 1} of 5, ${STAGES[idx].label}`}.`}
               accessibilityHint="Opens the report tracker"
               style={({ pressed }) => [styles.card, pressed && { backgroundColor: colors.paper }]}
             >
@@ -56,7 +64,7 @@ export default function MyReports() {
                 </View>
                 <View style={{ flex: 1, gap: 4 }}>
                   <Txt v="label" color={colors.muted}>
-                    {r.code} · {timeAgo(r.createdAt)}
+                    {code} · {timeAgo(r.createdAt)}
                   </Txt>
                   <Txt v="h2">{CATEGORIES[r.category].label}</Txt>
                   <Txt v="small" color={colors.muted} numberOfLines={2}>
@@ -68,11 +76,11 @@ export default function MyReports() {
               </View>
               <View style={styles.progress} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
                 {STAGES.map((s, i) => (
-                  <View key={s.key} style={[styles.seg, i <= idx && { backgroundColor: r.stage === 'confirmed' ? colors.ink : colors.red }]} />
+                  <View key={s.key} style={[styles.seg, !closed && i <= idx && { backgroundColor: r.stage === 'confirmed' ? colors.ink : colors.red }]} />
                 ))}
               </View>
               <Txt v="small" style={{ marginTop: 6 }}>
-                {STAGES[idx].label}
+                {closed ? 'Closed' : STAGES[idx].label}
               </Txt>
             </Pressable>
           );

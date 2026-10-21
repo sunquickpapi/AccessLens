@@ -7,6 +7,7 @@ import { Screen, StepHeader, Wrap } from '../../components/Layout';
 import Txt from '../../components/Txt';
 import VoiceNote from '../../components/VoiceNote';
 import { AFFECTED, IMPACTS, SEVERITY } from '../../lib/catalog';
+import { fieldStatus, withEdit } from '../../lib/autofill';
 import { colors, fonts, radius, border } from '../../lib/theme';
 import { useUI } from '../../lib/ui';
 import { useStore } from '../../state/store';
@@ -15,56 +16,59 @@ function toggle(list, key) {
   return list.includes(key) ? list.filter((k) => k !== key) : [...list, key];
 }
 
-// Step 2 — Describe how the barrier affects the journey.
+// Edit sheet — how the barrier affects the journey (pre-filled from the photo).
 export default function DescribeStep() {
   const { draft, updateDraft, settings } = useStore();
   const { say, fs } = useUI();
 
+  const edit = (patch) => updateDraft((d) => withEdit(d, patch, settings.getAround));
+  const aiNote = (key) => (fieldStatus(draft, key) === 'accepted' ? '  · AI suggested' : '');
+
   useEffect(() => {
-    if (draft.affected.length === 0 && settings.getAround.length) updateDraft({ affected: settings.getAround });
-    say('Step 2 of 4. Tell us how this barrier affects your journey. You can type or record your voice.');
+    say('Edit how this barrier affects the journey. You can also type or record your voice.');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const canContinue = !!draft.severity;
+  const canContinue = true; // "Check and send" asks for anything still missing
 
   return (
     <Screen
+      edges={['top', 'bottom']}
       footer={
         <Button
-          label="Next: check the AI suggestion"
+          label="Done"
           disabled={!canContinue}
           hint={canContinue ? undefined : 'Choose how much it affects the journey first'}
-          onPress={() => router.push('/report/category')}
+          onPress={() => router.back()}
         />
       }
     >
-      <StepHeader step={2} title="How does it affect your journey?" subtitle="This helps staff understand who is affected and how urgent it is." />
+      <StepHeader edit title="Effect on the journey" subtitle="The app guessed these from your photo. Change anything that isn’t right. It helps staff decide how urgent it is." />
 
       <Txt v="label" style={styles.q}>
-        How much does it affect the journey? *
+        How much does it affect the journey? *{aiNote('severity')}
       </Txt>
       <View style={{ gap: 10 }} accessibilityRole="radiogroup">
         {SEVERITY.map((s) => (
-          <Chip key={s.key} block multi={false} label={s.label} hint={s.hint} selected={draft.severity === s.key} onPress={() => updateDraft({ severity: s.key })} />
+          <Chip key={s.key} block multi={false} label={s.label} hint={s.hint} selected={draft.severity === s.key} onPress={() => edit({ severity: s.key })} />
         ))}
       </View>
 
       <Txt v="label" style={styles.q}>
-        What happened?
+        What happened?{aiNote('impacts')}
       </Txt>
       <Wrap>
         {IMPACTS.map((i) => (
-          <Chip key={i.key} label={i.label} selected={draft.impacts.includes(i.key)} onPress={() => updateDraft({ impacts: toggle(draft.impacts, i.key) })} />
+          <Chip key={i.key} label={i.label} selected={draft.impacts.includes(i.key)} onPress={() => edit({ impacts: toggle(draft.impacts, i.key) })} />
         ))}
       </Wrap>
 
       <Txt v="label" style={styles.q}>
-        Who does it affect?
+        Who does it affect?{aiNote('affected')}
       </Txt>
       <Wrap>
         {AFFECTED.map((a) => (
-          <Chip key={a.key} label={a.label} selected={draft.affected.includes(a.key)} onPress={() => updateDraft({ affected: toggle(draft.affected, a.key) })} />
+          <Chip key={a.key} label={a.label} selected={draft.affected.includes(a.key)} onPress={() => edit({ affected: toggle(draft.affected, a.key) })} />
         ))}
       </Wrap>
 

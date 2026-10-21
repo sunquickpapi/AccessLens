@@ -5,53 +5,55 @@ import Button from '../../components/Button';
 import Chip from '../../components/Chip';
 import Icon from '../../components/Icon';
 import { Card, Screen, StepHeader } from '../../components/Layout';
+import AIScoreCard, { aiSentence } from '../../components/AIScoreCard';
 import Photo from '../../components/Photo';
 import Txt from '../../components/Txt';
-import { SCORE_LABELS, confidenceWords } from '../../lib/ai';
+import { analysePhoto } from '../../lib/ai';
+import { applyAI, withEdit } from '../../lib/autofill';
 import { CATEGORIES, CATEGORY_KEYS } from '../../lib/catalog';
 import { colors, radius, border } from '../../lib/theme';
 import { useUI } from '../../lib/ui';
 import { useStore } from '../../state/store';
 
-// Step 3 — Confirm or correct the AI-suggested category.
+// Edit sheet — confirm or correct the AI-suggested barrier type.
 export default function CategoryStep() {
-  const { draft, updateDraft } = useStore();
+  const { draft, updateDraft, settings } = useStore();
   const { say } = useUI();
   const [showBox, setShowBox] = useState(true);
   const ai = draft.ai;
 
-  const light = !!ai && (ai.uncertain || ai.noBarrier);
-  const pct = ai ? Math.round(ai.confidence * 100) : 0;
-  const summary = ai
-    ? ai.noBarrier
-      ? `The AI did not spot a barrier in this photo, at ${pct} percent. If there is one, please choose the category.`
-      : ai.uncertain
-      ? `The AI is not sure. Its best guess is ${CATEGORIES[ai.category].label}, at ${Math.round(ai.confidence * 100)} percent. Please choose the right category.`
-      : `The AI suggests ${CATEGORIES[ai.category].label}, ${confidenceWords(ai.confidence).toLowerCase()}, ${Math.round(ai.confidence * 100)} percent. Confirm it or choose another.`
-    : '';
+  const summary = aiSentence(ai);
 
   useEffect(() => {
-    if (draft.aiState === 'done') say(`Step 3 of 4. ${summary}`);
-    else say('Step 3 of 4. The AI is still checking your photo.');
+    if (draft.aiState === 'done') say(`Barrier type. ${summary}`);
+    else say('Barrier type. The AI is still checking your photo.');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.aiState]);
 
-  const choose = (key) => updateDraft({ category: key, categoryCorrected: ai && !ai.noBarrier ? key !== ai.category : false });
+  const retry = () => {
+    const uri = draft.photoUri;
+    updateDraft({ aiState: 'running', aiError: null, ai: null });
+    analysePhoto(uri)
+      .then((r) => updateDraft((d) => applyAI(d, r, settings.getAround)))
+      .catch((e) => updateDraft({ aiState: 'error', aiError: e?.message ?? null }));
+  };
 
-  const scoreKeys = ai ? [...CATEGORY_KEYS, ...(ai.scores?.none != null ? ['none'] : [])] : [];
-  const ordered = ai ? scoreKeys.sort((a, b) => (ai.scores?.[b] ?? 0) - (ai.scores?.[a] ?? 0)) : [];
+  const choose = (key) =>
+    updateDraft((d) => withEdit(d, { category: key, categoryCorrected: ai && !ai.noBarrier ? key !== ai.category : false }, settings.getAround));
+
 
   return (
     <Screen
+      edges={['top', 'bottom']}
       footer={
         <Button
-          label={draft.categoryCorrected ? 'Use my correction' : 'Confirm category'}
+          label={draft.categoryCorrected ? 'Use my correction' : 'Confirm barrier type'}
           disabled={!draft.category}
-          onPress={() => router.push('/report/review')}
+          onPress={() => router.back()}
         />
       }
     >
-      <StepHeader step={3} title="Is this right?" subtitle="AI looked at your photo and suggests a barrier type. You have the final say." />
+      <StepHeader edit title="Barrier type" subtitle="AI looked at your photo and suggests a barrier type. You have the final say." />
 
       <Photo uri={draft.photoUri} ai={ai} showBox={showBox && !!ai} />
       {ai?.box ? (
@@ -74,48 +76,20 @@ export default function CategoryStep() {
         <Card tone="paper" style={{ marginTop: 14 }}>
           <Txt v="bodyStrong">AI check isn’t available right now.</Txt>
           <Txt v="small" color={colors.muted}>
-            {draft.aiError ? `${draft.aiError} ` : ''}Please choose the category yourself. Staff will still review it.
+            {draft.aiError ? `${draft.aiError} ` : ''}You can try again, check Settings → Server connection, or choose the category yourself. Staff will still review it.
           </Txt>
+          <Button
+            small
+            variant="outline"
+            style={{ marginTop: 12 }}
+            label="Try the AI again"
+            icon={<Icon name="refresh" size={18} />}
+            onPress={retry}
+          />
         </Card>
       ) : null}
 
-      {ai ? (
-        <View style={[styles.suggest, light && { backgroundColor: colors.paper }]} accessible accessibilityLabel={summary} accessibilityLiveRegion="polite">
-          <View style={styles.suggestTop}>
-            <Icon name="spark" color={light ? colors.red : colors.cream} />
-            <Txt v="label" color={light ? colors.ink : colors.cream}>
-              {ai.noBarrier ? 'AI result' : ai.uncertain ? 'AI is not sure' : 'AI suggestion'}
-            </Txt>
-          </View>
-          <Txt v="display" color={light ? colors.ink : colors.cream} style={{ marginTop: 6 }}>
-            {ai.noBarrier ? 'No barrier spotted' : CATEGORIES[ai.category].label}
-          </Txt>
-          <Txt v="small" color={light ? colors.ink : colors.cream}>
-            {confidenceWords(ai.confidence)} · {pct}%{ai.model === 'simulated' ? ' · simulated' : ''}
-          </Txt>
-          <View style={{ marginTop: 12, gap: 8 }}>
-            {ordered.map((k) => (
-              <View key={k} style={styles.scoreRow}>
-                <Txt v="small" color={light ? colors.ink : colors.cream} style={{ width: 118 }}>
-                  {SCORE_LABELS[k]}
-                </Txt>
-                <View style={[styles.track, light && { borderColor: colors.ink }]}>
-                  <View style={[styles.fill, { width: `${Math.round((ai.scores?.[k] ?? 0) * 100)}%` }, light && { backgroundColor: colors.red }]} />
-                </View>
-                <Txt v="small" color={light ? colors.ink : colors.cream} style={{ width: 40, textAlign: 'right' }}>
-                  {Math.round((ai.scores?.[k] ?? 0) * 100)}%
-                </Txt>
-              </View>
-            ))}
-          </View>
-          <Pressable onPress={() => say(summary, { force: true })} style={[styles.speak, light && { borderColor: colors.ink }]} accessibilityRole="button" accessibilityLabel="Read the AI suggestion aloud">
-            <Icon name="speaker" size={20} color={light ? colors.ink : colors.cream} />
-            <Txt v="small" color={light ? colors.ink : colors.cream}>
-              Read aloud
-            </Txt>
-          </Pressable>
-        </View>
-      ) : null}
+      <AIScoreCard ai={ai} style={{ marginTop: 8 }} />
 
       <Txt v="label" style={{ marginTop: 26, marginBottom: 10 }}>
         {ai ? 'Confirm or correct' : 'Choose a category'}

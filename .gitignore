@@ -45,3 +45,7 @@ ai-server/.venv/
 ai-server/__pycache__/
 ai-server/test_photos/
 ai-server/results.csv
+ai-server/data/
+
+# local editor settings
+.claude/
