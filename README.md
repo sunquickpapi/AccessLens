@@ -46,7 +46,8 @@ This folder holds the whole working prototype:
 
 **1. Install the app libraries** (first time only)
 ```bash
-cd accesslens
+git clone https://github.com/sunquickpapi/AccessLens.git
+cd AccessLens
 npm install
 ```
 
