@@ -97,27 +97,33 @@ def media(name):
     return send_from_directory(db.UPLOADS, name, max_age=3600)
 
 
-# Optional: a web build of the resident app (hosted demo, e.g. a Hugging Face Space).
+# Hosted demo (one public link): an entry page at /, the resident app (web build) at /app,
+# the staff website at /staff. All three use this server and its database.
 APP_DIR = Path(os.environ["ACCESSLENS_APP_DIR"]) if os.environ.get("ACCESSLENS_APP_DIR") else None
-RESERVED = ("api/", "staff", "media/", "analyse", "health")
+ENTRY_PAGE = Path(os.environ["ACCESSLENS_ENTRY_PAGE"]) if os.environ.get("ACCESSLENS_ENTRY_PAGE") else None
 
 
 @app.get("/")
 def root():
-    if APP_DIR and (APP_DIR / "index.html").exists():
-        return send_from_directory(APP_DIR, "index.html")
+    if ENTRY_PAGE and ENTRY_PAGE.is_file():
+        resp = send_from_directory(ENTRY_PAGE.parent, ENTRY_PAGE.name)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
     return redirect("/staff/")
 
 
-@app.get("/<path:name>")
-def resident_web_app(name):
-    # Files of the web app, or index.html for its screens (/reports, /track/12 …).
-    if not APP_DIR or name.startswith(RESERVED):
-        return jsonify(error="Not found."), 404
-    target = APP_DIR / name
-    if target.is_file():
+@app.get("/app")
+@app.get("/app/")
+@app.get("/app/<path:name>")
+def resident_web_app(name=""):
+    # Files of the web app, or index.html for its screens (/app/reports, /app/track/12 …).
+    if not APP_DIR:
+        return jsonify(error="The resident web app is not part of this server."), 404
+    if name and (APP_DIR / name).is_file():
         return send_from_directory(APP_DIR, name)
-    return send_from_directory(APP_DIR, "index.html")
+    resp = send_from_directory(APP_DIR, "index.html")
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 @app.get("/staff")

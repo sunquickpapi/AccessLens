@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AccessLens · Try the prototype</title>
+<meta name="description" content="AccessLens prototype: choose the resident app or the township staff website. Both share one live database.">
+<link rel="icon" href="/staff/logo.svg" type="image/svg+xml">
+<style>
+@font-face { font-family: "Inter"; src: url("/staff/fonts/Inter_400Regular.ttf"); font-weight: 400; }
+@font-face { font-family: "Inter"; src: url("/staff/fonts/Inter_600SemiBold.ttf"); font-weight: 600; }
+@font-face { font-family: "Inter"; src: url("/staff/fonts/Inter_700Bold.ttf"); font-weight: 700; }
+@font-face { font-family: "Archivo Black"; src: url("/staff/fonts/ArchivoBlack_400Regular.ttf"); }
+:root { --red: #D62828; --ink: #1E1614; --cream: #FFF3E0; --paper: #FFFBF4; --muted: #6B5F55; --line: #1E1614; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--cream); color: var(--ink); font-family: "Inter", system-ui, sans-serif; line-height: 1.5; }
+a { color: inherit; }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 32px 20px 40px; }
+header { display: flex; align-items: center; gap: 14px; }
+header b { font-family: "Archivo Black", sans-serif; font-weight: 400; font-size: 24px; display: block; }
+header small { display: block; color: var(--red); font-weight: 700; letter-spacing: .12em; font-size: 11px; text-transform: uppercase; }
+h1 { font-family: "Archivo Black", sans-serif; font-weight: 400; font-size: clamp(30px, 5vw, 48px); line-height: 1.05; margin: 34px 0 10px; letter-spacing: -.01em; }
+h1 em { font-style: normal; color: var(--red); }
+.lead { font-size: 17px; color: #3a322d; max-width: 640px; margin: 0; }
+.roles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin-top: 30px; }
+.role { background: var(--paper); border: 3px solid var(--line); border-radius: 22px; padding: 24px; display: flex; flex-direction: column; box-shadow: 0 6px 0 var(--ink); }
+.role.staff { background: var(--ink); color: var(--cream); }
+.icon { width: 56px; height: 56px; border-radius: 16px; background: var(--red); display: grid; place-items: center; border: 3px solid var(--line); }
+.staff .icon { border-color: var(--cream); }
+.tag { font-weight: 700; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--red); margin-top: 18px; }
+.staff .tag { color: #F07A6E; }
+.role h2 { font-family: "Archivo Black", sans-serif; font-weight: 400; font-size: 26px; line-height: 1.1; margin: 6px 0 8px; }
+.role p { margin: 0 0 14px; font-size: 15.5px; }
+.role ul { margin: 0 0 18px; padding-left: 18px; font-size: 14.5px; }
+.role li { margin-bottom: 4px; }
+.btn { margin-top: auto; display: flex; align-items: center; justify-content: center; gap: 10px; text-decoration: none; font-weight: 700; font-size: 17px; padding: 15px 18px; border-radius: 14px; border: 3px solid var(--line); background: var(--red); color: #fff; box-shadow: 0 4px 0 var(--ink); transition: transform .08s ease, box-shadow .08s ease; }
+.btn:hover { transform: translateY(-1px); }
+.btn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
+.staff .btn { border-color: var(--cream); box-shadow: 0 4px 0 #000; }
+.btn:focus-visible { outline: 3px solid #1d6fd6; outline-offset: 3px; }
+.note { font-size: 13px; color: var(--muted); margin: 10px 0 0; text-align: center; }
+.staff .note { color: #D9CDBD; }
+.logins { border: 1.5px dashed #6b5f55; border-radius: 14px; padding: 12px 14px; margin: 0 0 18px; font-size: 14px; }
+.logins b { display: block; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: #F07A6E; margin-bottom: 6px; }
+.logins div { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 3px 0; }
+.logins code { font-family: ui-monospace, Menlo, monospace; background: #2D2723; color: var(--cream); padding: 1px 6px; border-radius: 6px; font-size: 13px; }
+.journey { margin-top: 30px; background: var(--paper); border: 3px solid var(--line); border-radius: 22px; padding: 22px 24px; }
+.journey h3 { font-family: "Archivo Black", sans-serif; font-weight: 400; font-size: 20px; margin: 0 0 4px; }
+.journey > p { margin: 0 0 14px; color: #3a322d; font-size: 15px; }
+.steps { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.steps li { border-top: 4px solid var(--red); padding-top: 10px; font-size: 14.5px; }
+.steps b { display: block; font-family: "Archivo Black", sans-serif; font-weight: 400; color: var(--red); font-size: 20px; }
+footer { margin-top: 26px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+@media (max-width: 760px) {
+  .roles { grid-template-columns: 1fr; }
+  .steps { grid-template-columns: 1fr 1fr; }
+  .wrap { padding-top: 22px; }
+}
+@media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header>
+    <svg width="48" height="48" viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="24" fill="#D62828"/><circle cx="45" cy="45" r="24" fill="none" stroke="#FFF3E0" stroke-width="7"/><line x1="62.5" y1="62.5" x2="77" y2="77" stroke="#FFF3E0" stroke-width="8" stroke-linecap="round"/><path d="M31 53 H39 L51 41 H59" fill="none" stroke="#FFF3E0" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div><b>AccessLens</b><small>Spot it. Snap it. Clear the way.</small></div>
+  </header>
+
+  <h1>Try the prototype. <em>Choose your role.</em></h1>
+  <p class="lead">AccessLens connects residents who meet walkway barriers with the township team that fixes them. Both sides below share one live database, so a report sent by a resident appears on the staff dashboard straight away.</p>
+
+  <section class="roles" aria-label="Choose a role">
+    <article class="role">
+      <div class="icon" aria-hidden="true"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#FFF3E0" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></div>
+      <div class="tag">Resident</div>
+      <h2>Report a walkway barrier</h2>
+      <p>Snap or choose one photo. The AI fills in the report; you check it and send it.</p>
+      <ul>
+        <li>Track your report through five stages</li>
+        <li>Get an update for every staff action</li>
+        <li>Confirm the fix and sign the defect report</li>
+      </ul>
+      <a class="btn" href="/app">Open the resident app <span aria-hidden="true">→</span></a>
+      <p class="note">No login needed. Works best on a phone, or a narrow browser window.</p>
+    </article>
+
+    <article class="role staff">
+      <div class="icon" aria-hidden="true"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#FFF3E0" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+      <div class="tag">Township staff</div>
+      <h2>Manage and fix reports</h2>
+      <p>Review the AI's findings, verify, set priority, assign work and confirm the fix with a signed defect report.</p>
+      <div class="logins">
+        <b>Demo logins</b>
+        <div><span>Admin tab</span><span><code>admin@accesslens.my</code> / <code>admin123</code></span></div>
+        <div><span>Staff tab · Farid</span><span><code>S1002</code> / <code>staff123</code></span></div>
+        <div><span>Staff tab · Aina</span><span><code>S1001</code> / <code>staff123</code></span></div>
+      </div>
+      <a class="btn" href="/staff/">Open the staff website <span aria-hidden="true">→</span></a>
+      <p class="note">Works on laptops and phones.</p>
+    </article>
+  </section>
+
+  <section class="journey" aria-label="Try the full journey">
+    <h3>Try the full journey</h3>
+    <p>Open both roles in separate tabs and follow one report from photo to signed fix.</p>
+    <ol class="steps">
+      <li><b>01</b>Resident: send a report with a photo of a blocked walkway.</li>
+      <li><b>02</b>Staff (Admin): it pops up on the dashboard. Verify and assign it.</li>
+      <li><b>03</b>Staff: upload the after photo, then confirm the fix.</li>
+      <li><b>04</b>Resident: see each update, tap "Yes, it's fixed" and sign. Staff: open <b style="display:inline;font-family:inherit;font-size:inherit">View report</b>.</li>
+    </ol>
+  </section>
+
+  <footer>
+    <span>Trinity Tech · Universiti Teknologi MARA · Sime Darby Property University Hackathon 2026</span>
+    <span>Hosted demo: AI results are simulated on this free server · <a href="https://github.com/sunquickpapi/AccessLens">Source on GitHub</a></span>
+  </footer>
+</main>
+</body>
+</html>
