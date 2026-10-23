@@ -311,7 +311,72 @@ class FakeAnalyser:
         )
 
 
+class DemoAnalyser:
+    """Scripted AI for the free hosted demo (ACCESSLENS_DEMO=1), where the real models
+    don't fit. Gives realistic, repeatable results: the same photo always gets the same answer."""
+
+    name = "demo"
+    PLAN = [  # (category, effect) — weighted towards the barriers residents report most
+        ("obstruction", "blocked"), ("obstruction", "blocked"), ("obstruction", "difficult"),
+        ("surface", "difficult"), ("surface", "difficult"), ("surface", "minor"),
+        ("steps", "blocked"), ("steps", "difficult"),
+    ]
+
+    @staticmethod
+    def _guess(img: Image.Image) -> str:
+        """Cheap look at the photo: colourful objects → obstruction (vehicles, bins, signs),
+        strong horizontal lines → steps/kerbs, otherwise grey texture → surface damage."""
+        from PIL import ImageChops, ImageStat
+
+        small = img.resize((96, 96))
+        hsv = small.convert("HSV")
+        pixels = list(hsv.get_flattened_data() if hasattr(hsv, "get_flattened_data") else hsv.getdata())
+        # strongly coloured pixels that aren't grass, trees or sky (green/cyan hues)
+        colourful = sum(1 for h, s, v in pixels if s > 90 and v > 60 and not 35 <= h <= 150) / len(pixels)
+        grey = small.convert("L")
+        horizontal = ImageStat.Stat(ImageChops.difference(grey, ImageChops.offset(grey, 0, 1))).mean[0]
+        vertical = ImageStat.Stat(ImageChops.difference(grey, ImageChops.offset(grey, 1, 0))).mean[0]
+        if colourful > 0.03:
+            return "obstruction"
+        if horizontal > vertical * 1.6:
+            return "steps"
+        return "surface"
+
+    def analyse(self, data: bytes) -> Result:
+        import hashlib
+
+        img = load_image(data)  # same checks as the real AI: rejects files that aren't pictures
+        h = hashlib.sha256(data).digest()
+        guess = self._guess(img)
+        plan = [p for p in self.PLAN if p[0] == guess]
+        category, severity = plan[h[0] % len(plan)]
+        confidence = 0.78 + (h[1] % 15) / 100  # 78–92 %
+        others = [c for c in CATEGORIES if c != category]
+        split = [0.45, 0.33, 0.22]
+        rest = 1 - confidence
+        scores = {category: confidence} | {c: rest * s for c, s in zip(others, split)}
+        sev = {k: 0.12 for k in SEVERITY_KEYS} | {severity: 0.76}
+        box = {"x": 0.14 + (h[2] % 8) / 100, "y": 0.34 + (h[3] % 10) / 100,
+               "w": 0.58 + (h[4] % 10) / 100, "h": 0.44 + (h[5] % 8) / 100,
+               "label": {"obstruction": "object on the path", "surface": "damaged surface", "steps": "step"}[category],
+               "score": round(confidence - 0.03, 2)}
+        return Result(
+            walkway=0.88 + (h[6] % 10) / 100,
+            severity=severity,
+            severity_scores=sev,
+            category=category,
+            confidence=confidence,
+            scores=scores,
+            box=box,
+            uncertain=False,
+            no_barrier=False,
+            model=self.name,
+        )
+
+
 def make_analyser(with_box: bool = True):
+    if os.environ.get("ACCESSLENS_DEMO") == "1":
+        return DemoAnalyser()
     if os.environ.get("ACCESSLENS_FAKE") == "1":
         return FakeAnalyser()
     return Analyser(with_box=with_box)
