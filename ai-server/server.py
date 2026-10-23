@@ -97,9 +97,27 @@ def media(name):
     return send_from_directory(db.UPLOADS, name, max_age=3600)
 
 
+# Optional: a web build of the resident app (hosted demo, e.g. a Hugging Face Space).
+APP_DIR = Path(os.environ["ACCESSLENS_APP_DIR"]) if os.environ.get("ACCESSLENS_APP_DIR") else None
+RESERVED = ("api/", "staff", "media/", "analyse", "health")
+
+
 @app.get("/")
 def root():
+    if APP_DIR and (APP_DIR / "index.html").exists():
+        return send_from_directory(APP_DIR, "index.html")
     return redirect("/staff/")
+
+
+@app.get("/<path:name>")
+def resident_web_app(name):
+    # Files of the web app, or index.html for its screens (/reports, /track/12 …).
+    if not APP_DIR or name.startswith(RESERVED):
+        return jsonify(error="Not found."), 404
+    target = APP_DIR / name
+    if target.is_file():
+        return send_from_directory(APP_DIR, name)
+    return send_from_directory(APP_DIR, "index.html")
 
 
 @app.get("/staff")

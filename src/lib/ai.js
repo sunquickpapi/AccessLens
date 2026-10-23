@@ -70,6 +70,8 @@ export function aiBaseUrl() {
   const envUrl = process.env.EXPO_PUBLIC_AI_URL;
   if (envUrl) return cleanUrl(envUrl);
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    // Hosted build (e.g. Hugging Face Space): the server also serves this page.
+    if (process.env.EXPO_PUBLIC_SAME_ORIGIN === '1') return window.location.origin;
     return `http://${window.location.hostname || 'localhost'}:${AI_PORT}`;
   }
   const host = detectedHosts()[0];
