@@ -3,6 +3,7 @@
 
 
 **Spot it. Snap it. Clear the way.**
+**▶ Live demo:** [fvlnzm.pythonanywhere.com](https://fvlnzm.pythonanywhere.com) — choose Resident or Township staff (AI results are simulated on the free hosted version)
 AI-assisted accessibility reporting for inclusive townships.
 
 Submission by **Trinity Tech** (Universiti Teknologi MARA) for the **Sime Darby Property University Hackathon 2026 — Township of Tomorrow**
